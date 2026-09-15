@@ -921,7 +921,9 @@ void ClientApplication::updateMods(float dt) {
           }
         }
 
-        if (modDirectories.empty()) {
+        bool forceReload = m_forceModReload;
+        m_forceModReload = false;
+        if (modDirectories.empty() && !forceReload) {
           changeState(MainAppState::Splash);
         } else {
           Logger::info("Reloading to include updated user generated content");
@@ -969,6 +971,14 @@ void ClientApplication::updateTitle(float dt) {
   m_cinematicOverlay->update(dt);
 
   m_titleScreen->update(dt);
+  if (m_titleScreen->takeModReloadRequest()) {
+    Logger::info("Reloading mods after Workshop changes");
+    m_titleScreen->stopMusic();
+    m_forceModReload = true;
+    m_loggedUGCCheck = false;
+    changeState(MainAppState::Mods);
+    return;
+  }
   m_mainMixer->update(dt);
   m_mainMixer->setSpeed(GlobalTimescale);
 
@@ -991,6 +1001,8 @@ void ClientApplication::updateTitle(float dt) {
           return "In Options";
         case TitleState::Mods:
           return "In Mods";
+        case TitleState::Workshop:
+          return "In Workshop";
         case TitleState::SinglePlayerSelectCharacter:
           return "Selecting a character for singleplayer";
         case TitleState::SinglePlayerCreateCharacter:

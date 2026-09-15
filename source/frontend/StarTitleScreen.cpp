@@ -16,6 +16,7 @@
 #include "StarWidgetLuaBindings.hpp"
 #include "StarOptionsMenu.hpp"
 #include "StarModsMenu.hpp"
+#include "StarWorkshopMenu.hpp"
 #include "StarAssets.hpp"
 #include "StarCelestialDatabase.hpp"
 #include "StarEnvironmentPainter.hpp"
@@ -49,6 +50,7 @@ TitleScreen::TitleScreen(PlayerStoragePtr playerStorage, MixerPtr mixer, Univers
   initMultiPlayerMenu();
   initOptionsMenu(client);
   initModsMenu();
+  initWorkshopMenu();
 
   resetState();
 }
@@ -239,9 +241,15 @@ void TitleScreen::initMainMenu() {
   buttonCallbacks["quit"] = [=](Widget*) { switchState(TitleState::Quit); };
   buttonCallbacks["back"] = [=](Widget*) { back(); };
   buttonCallbacks["mods"] = [=](Widget*) { switchState(TitleState::Mods); };
+  buttonCallbacks["workshop"] = [=](Widget*) { switchState(TitleState::Workshop); };
+
+  // Without a user generated content service there is no Workshop to browse.
+  bool hasWorkshop = (bool)m_guiContext->applicationController()->userGeneratedContentService();
 
   for (auto buttonConfig : config.getArray("mainMenuButtons")) {
     String key = buttonConfig.getString("key");
+    if (key == "workshop" && !hasWorkshop)
+      continue;
     String image = buttonConfig.getString("button");
     String imageHover = buttonConfig.getString("hover");
     Vec2I offset = jsonToVec2I(buttonConfig.get("offset"));
@@ -474,6 +482,26 @@ void TitleScreen::initModsMenu() {
     });
 }
 
+void TitleScreen::initWorkshopMenu() {
+  auto service = m_guiContext->applicationController()->userGeneratedContentService();
+  if (!service)
+    return;
+
+  m_workshopMenu = make_shared<WorkshopMenu>(&m_paneManager, service, [this]() { m_modReloadRequested = true; });
+  m_workshopMenu->setAnchor(PaneAnchor::Center);
+  m_workshopMenu->lockPosition();
+
+  m_paneManager.registerPane("workshopMenu", PaneLayer::Hud, m_workshopMenu, [this](PanePtr const&) {
+      back();
+    });
+}
+
+bool TitleScreen::takeModReloadRequest() {
+  bool requested = m_modReloadRequested;
+  m_modReloadRequested = false;
+  return requested;
+}
+
 void TitleScreen::switchState(TitleState titleState) {
   if (m_titleState == titleState)
     return;
@@ -495,6 +523,9 @@ void TitleScreen::switchState(TitleState titleState) {
       m_paneManager.displayRegisteredPane("optionsMenu");
     } if (titleState == TitleState::Mods) {
       m_paneManager.displayRegisteredPane("modsMenu");
+    } else if (titleState == TitleState::Workshop) {
+      if (m_workshopMenu)
+        m_paneManager.displayRegisteredPane("workshopMenu");
     } else if (titleState == TitleState::SinglePlayerSelectCharacter) {
       m_paneManager.displayRegisteredPane("charSelectionMenu");
     } else if (titleState == TitleState::SinglePlayerCreateCharacter) {
@@ -519,6 +550,8 @@ void TitleScreen::back() {
   if (m_titleState == TitleState::Options)
     switchState(TitleState::Main);
   else if (m_titleState == TitleState::Mods)
+    switchState(TitleState::Main);
+  else if (m_titleState == TitleState::Workshop)
     switchState(TitleState::Main);
   else if (m_titleState == TitleState::SinglePlayerSelectCharacter)
     switchState(TitleState::Main);

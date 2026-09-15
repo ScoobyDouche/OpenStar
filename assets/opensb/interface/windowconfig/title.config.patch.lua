@@ -4,6 +4,24 @@ function patch(data)
       v.offset[2] = v.offset[2] + (v.key == "quit" and -5 or 15)
     end
   end
+
+  -- Place a Workshop button beside the vanilla Mods button.
+  local modsButton
+  for _, v in pairs(data.mainMenuButtons) do
+    if v.key == "mods" then
+      modsButton = v
+    end
+  end
+  if modsButton then
+    table.insert(data.mainMenuButtons, {
+      key = "workshop",
+      button = "/interface/modsmenu/workshopbutton.png",
+      hover = "/interface/modsmenu/workshopbuttonhover.png",
+      offset = jarray{modsButton.offset[1] - 90, modsButton.offset[2]},
+      rightAnchored = true
+    })
+  end
+
   data.skyBackdropDarken = jarray{0, 0, 0, 64}
   local rng = sb.makeRandomSource(os.time())
   local barst = rng:randUInt(3000) == 0 and "barst"
