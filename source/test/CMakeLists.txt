@@ -27,6 +27,7 @@ SET (star_core_tests_SOURCES
       file_test.cpp
       hash_test.cpp
       host_address_test.cpp
+      image_decode_test.cpp
       ref_ptr_test.cpp
       json_test.cpp
       flat_hash_test.cpp

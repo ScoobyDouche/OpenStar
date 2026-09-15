@@ -42,6 +42,7 @@ SET (star_core_HEADERS
     StarIODevice.hpp
     StarIdMap.hpp
     StarImage.hpp
+    StarImageDecode.hpp
     StarImageProcessing.hpp
     StarImageScaling.hpp
     StarInputEvent.hpp
@@ -156,6 +157,7 @@ SET (star_core_SOURCES
     StarHttpClient.cpp
     StarIODevice.cpp
     StarImage.cpp
+    StarImageDecode.cpp
     StarImageProcessing.cpp
     StarImageScaling.cpp
     StarInputEvent.cpp
