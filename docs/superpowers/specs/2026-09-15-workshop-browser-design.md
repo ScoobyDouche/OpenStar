@@ -1,7 +1,7 @@
 # In-Game Steam Workshop Browser — Design
 
 Date: 2026-09-15
-Status: Approved design, pending spec review
+Status: Approved
 
 ## Goal
 
@@ -19,7 +19,7 @@ In scope:
 - Details panel: title, author, description, preview image, subscriber count,
   Subscribe / Unsubscribe, download progress, "Open in Steam" link.
 - Dependency auto-subscribe with a confirmation popup.
-- "Apply changes" button that live-reloads assets from the title screen.
+- "Apply changes" button that reloads mods from the title screen.
 
 Out of scope (can be added later without redesign):
 
@@ -28,7 +28,7 @@ Out of scope (can be added later without redesign):
   subscribe/unsubscribe to Lua would let any installed mod act on the player's
   Steam account. All Workshop actions happen only from native C++ UI in
   response to player clicks.
-- Non-Steam builds. They do not get a Workshop service; the button is disabled.
+- Non-Steam builds. They have no Workshop service, so the button is not shown.
 
 ## Existing code this builds on
 
@@ -36,26 +36,34 @@ Out of scope (can be added later without redesign):
   interface (currently: `subscribedContentIds`, `contentDownloadDirectory`,
   `triggerContentDownload`).
 - `source/application/StarUserGeneratedContentService_pc_steam.{hpp,cpp}` —
-  Steam implementation.
+  Steam implementation, created only when Steam is available.
 - `source/application/StarPlatformServices_pc.cpp:221` — `SteamAPI_RunCallbacks()`
-  is already pumped, so `CCallResult`/`STEAM_CALLBACK` async results work.
-- `source/client/StarClientApplication.cpp` `loadMods()` / `updateMods()` —
-  collects installed UGC directories and calls `Root::loadMods(dirs)`, which
-  triggers `Root::reload()`.
+  is already pumped, so `CCallResult` / `STEAM_CALLBACK` async results work.
+- `source/client/StarClientApplication.cpp` — `MainAppState::Mods` runs
+  `updateMods()`, which collects installed UGC directories and calls
+  `Root::loadMods(dirs)` (which reloads Root), then goes Splash → Title.
+  Changing from `Title` to any lower state destroys the `TitleScreen`, and
+  reaching `Title` again recreates it.
 - `source/frontend/StarTitleScreen.{hpp,cpp}` — `TitleState` enum,
-  `mainMenuButtons` config, `initModsMenu()` pane registration pattern.
-- `source/frontend/StarModsMenu.{hpp,cpp}` — pane built with `GuiReader` from a
-  JSON layout; the pattern the new menu follows.
-- `cpr` (vcpkg) — HTTP client already linked; used for preview image fetches.
-- `core/StarImage` — PNG decoding only.
+  `mainMenuButtons` loop, `initModsMenu()` pane registration pattern.
+- `source/frontend/StarModsMenu.{hpp,cpp}` and
+  `source/frontend/StarHttpTrustDialog.{hpp,cpp}` — patterns for panes and
+  modal dialogs built with `GuiReader` from JSON layouts.
+- `source/core/StarHttpClient.hpp` — `HttpClient::getAsync` (cpr on a worker
+  pool), used for preview image fetches.
+- `core/StarImage` — PNG decoding only; rows are stored bottom-up.
+- Vanilla assets already contain `/interface/modsmenu/*` art (including
+  `workshopbutton.png` / `workshopbuttonhover.png`, 86×18) and
+  `/interface/button*.png` (54×14), which the new UI reuses.
 
 ## Architecture
 
 ### 1. Workshop service API (platform + Steam implementation)
 
-Extend `UserGeneratedContentService` with platform-neutral types and methods.
-All network operations are asynchronous: a call starts a request and returns a
-request handle; the caller polls for the result each frame. No method blocks.
+Extend `UserGeneratedContentService` (and give it a virtual destructor) with
+platform-neutral types and methods. All network operations are asynchronous:
+a call starts a request and returns a request id; the caller polls each frame.
+No method blocks.
 
 Types (in `StarUserGeneratedContentService.hpp`):
 
@@ -65,35 +73,35 @@ enum class WorkshopSort { Popular, Recent, MostSubscribed };
 struct WorkshopItem {
   String id;
   String title;
-  String author;          // display name if available, else Steam ID string
+  String authorId;        // Steam ID; resolve with personaName()
   String description;
   String previewUrl;
-  uint64_t subscriberCount;
+  uint64_t subscriberCount = 0;
   StringList dependencyIds;
-  bool available;         // false if hidden/removed
+  bool available = true;  // false if hidden/removed/banned
 };
 
 struct WorkshopPage {
   List<WorkshopItem> items;
-  uint32_t page;
-  uint32_t totalResults;
+  uint32_t page = 1;
+  uint32_t totalResults = 0;
 };
 
 enum class WorkshopItemState { NotSubscribed, Downloading, Installed, NeedsUpdate, DownloadFailed };
 
 struct WorkshopItemStatus {
-  WorkshopItemState state;
-  float downloadProgress;  // 0..1, meaningful only while Downloading
+  WorkshopItemState state = WorkshopItemState::NotSubscribed;
+  float downloadProgress = 0.0f;  // 0..1, meaningful only while Downloading
 };
 
 enum class WorkshopRequestStatus { Pending, Succeeded, Failed };
+
+typedef uint64_t WorkshopRequestId;
 ```
 
 New virtual methods:
 
 ```cpp
-using WorkshopRequestId = uint64_t;
-
 virtual WorkshopRequestId queryItems(String const& searchText, WorkshopSort sort, uint32_t page) = 0;
 virtual WorkshopRequestId queryItemDetails(StringList const& ids) = 0;
 virtual WorkshopRequestStatus requestStatus(WorkshopRequestId request) const = 0;
@@ -101,171 +109,213 @@ virtual Maybe<WorkshopPage> takeQueryResult(WorkshopRequestId request) = 0;
 
 virtual WorkshopRequestId subscribe(String const& id) = 0;
 virtual WorkshopRequestId unsubscribe(String const& id) = 0;
+virtual void releaseRequest(WorkshopRequestId request) = 0;
 
 virtual WorkshopItemStatus itemStatus(String const& id) const = 0;
+virtual bool retryDownload(String const& id) = 0;
+virtual Maybe<String> personaName(String const& steamId) = 0;
 ```
 
-`queryItemDetails` is what dependency resolution uses to fetch the items a mod
-requires (and their own requirements).
+Semantics:
+
+- `requestStatus` reports `Failed` for unknown ids and for any request still
+  pending 30 seconds after it started.
+- `takeQueryResult` removes a query request (cancelling it if pending) and
+  returns the page only if it succeeded.
+- `releaseRequest` removes a subscribe/unsubscribe request (cancelling it if
+  pending).
+- `retryDownload` clears a recorded download failure and calls `DownloadItem`.
+- `personaName` returns the owner's display name, or nothing while Steam is
+  still fetching it (callers show the ID meanwhile).
 
 Steam implementation mapping:
 
 | Method | Steam API |
 |---|---|
-| `queryItems` | `CreateQueryAllUGCRequest(EUGCQuery, k_EUGCMatchingUGCType_Items, appId, appId, page)`; sort → `k_EUGCQuery_RankedByTrend` / `RankedByPublicationDate` / `RankedByTotalUniqueSubscriptions`; non-empty search text → `k_EUGCQuery_RankedByTextSearch` + `SetSearchText`; `SetReturnLongDescription(true)`; `SetReturnChildren(true)`; `SendQueryUGCRequest` → `CCallResult<SteamUGCQueryCompleted_t>` |
-| result reading | `GetQueryUGCResult`, `GetQueryUGCPreviewURL`, `GetQueryUGCStatistic(k_EItemStatistic_NumSubscriptions)`, `GetQueryUGCChildren`, then `ReleaseQueryUGCRequest` |
-| `queryItemDetails` | `CreateQueryUGCDetailsRequest(ids, n)` + `SetReturnChildren(true)`; requested IDs absent from the results are returned with `available = false` |
-| `subscribe` / `unsubscribe` | `SubscribeItem` / `UnsubscribeItem` → `CCallResult<RemoteStorageSubscribePublishedFileResult_t>` / `RemoteStorageUnsubscribePublishedFileResult_t` |
-| `itemStatus` | `GetItemState` flags + `GetItemDownloadInfo` for progress; `DownloadItemResult_t` with a non-OK result marks `DownloadFailed` |
-
-Author names: `GetQueryUGCResult` gives the owner's Steam ID. The display name is
-resolved with `SteamFriends()->GetFriendPersonaName` after
-`RequestUserInformation(id, true)`; until it resolves, the ID string is shown.
+| `queryItems` | `CreateQueryAllUGCRequest(type, k_EUGCMatchingUGCType_Items, appId, appId, page)` with `appId = SteamUtils()->GetAppID()`; sort → `k_EUGCQuery_RankedByTrend` / `RankedByPublicationDate` / `RankedByTotalUniqueSubscriptions`; non-empty search → `k_EUGCQuery_RankedByTextSearch` + `SetSearchText`; `SetReturnLongDescription(true)`; `SetReturnChildren(true)`; `SendQueryUGCRequest` → `CCallResult<…, SteamUGCQueryCompleted_t>` |
+| result reading | `GetQueryUGCResult`, `GetQueryUGCPreviewURL`, `GetQueryUGCStatistic(k_EItemStatistic_NumSubscriptions)`, `GetQueryUGCChildren`; `ReleaseQueryUGCRequest` when the request is removed |
+| `queryItemDetails` | `CreateQueryUGCDetailsRequest(ids, n)` + the same result reading; requested ids absent from results are appended with `available = false` |
+| `subscribe` / `unsubscribe` | `SubscribeItem` / `UnsubscribeItem` → `CCallResult` on `RemoteStorageSubscribePublishedFileResult_t` / `RemoteStorageUnsubscribePublishedFileResult_t` |
+| `itemStatus` | `GetItemState` flags + `GetItemDownloadInfo`; a `DownloadItemResult_t` with a non-OK result marks the item `DownloadFailed` |
+| `personaName` | `SteamFriends()->RequestUserInformation(id, true)` then `GetFriendPersonaName`, cached per ID |
 
 ### 2. Workshop logic without Steam (`source/game/StarWorkshopLogic.{hpp,cpp}`)
 
-Pure logic with no Steam or UI dependency, so it can be unit tested against a
-fake service:
+Pure logic depending only on core and the platform types, unit tested without
+Steam or assets:
 
-- `WorkshopDependencyResolver` — given a root item ID and a function to fetch
-  item details, walks dependencies breadth-first. Each ID is visited once, so
-  cycles terminate. Output: `toSubscribe` (not yet subscribed, available),
-  `unavailable` (hidden or removed), `alreadySubscribed`. The walk is
-  incremental: `step()` issues detail requests for the current frontier and
-  returns `Pending` until every level is resolved.
-- `WorkshopApplyState` — tracks whether subscriptions changed since the last
-  apply, and whether any subscribed item is still `Downloading`. Exposes
-  `canApply()`, `pendingDownloadCount()`, `hasChanges()`.
+- `isAllowedWorkshopPreviewUrl(url)` — true only for `https://` URLs whose host
+  is exactly `steamuserimages-a.akamaihd.net` or `images.steamusercontent.com`
+  (case-insensitive), with no userinfo (`@`) or port.
+- `WorkshopDependencyResolver` — a state machine that does no I/O. Constructed
+  with the root item id and the set of already-subscribed ids. The caller
+  loops: `nextBatch()` returns ids whose details are needed, the caller fetches
+  them with `queryItemDetails`, then passes the items to `supplyBatch()` (or
+  calls `fail()`). It walks dependencies breadth-first and visits each id once,
+  so cycles and diamonds terminate. Outputs, in discovery order:
+  `toSubscribe()` (available, not subscribed, not the root),
+  `unavailable()` (missing or `available == false`), `alreadySubscribed()`,
+  and `titleFor(id)` for display.
+- `WorkshopApplyState` — tracks ids whose subscription changed since the menu
+  opened and which of those are still downloading. Exposes `markChanged`,
+  `setDownloading`, `hasChanges`, `pendingDownloadCount`, `canApply`,
+  `changedIds`, `reset`.
 
-### 3. Workshop browser pane (`source/frontend/StarWorkshopMenu.{hpp,cpp}`)
+### 3. Image decoding (`source/core/StarImageDecode.{hpp,cpp}`)
 
-A `Pane` subclass built with `GuiReader` from
-`assets/opensb/interface/workshopmenu/workshopmenu.config`, which contains the
-layout and the placeholder preview image.
+- `Maybe<Image> decodeImage(ByteArray const& bytes)` — decodes PNG, JPEG, GIF
+  (first frame) and BMP with `stb_image` into RGBA32 with rows bottom-up,
+  matching `Image::readPng`. Returns nothing on failure.
+- `Image fitImage(Image const& image, unsigned maxSide)` — nearest-neighbour
+  downscale preserving aspect ratio so neither side exceeds `maxSide`; images
+  already small enough are returned unchanged.
+- `stb` comes from vcpkg (added to `source/vcpkg.json`), found with
+  `find_path(STB_INCLUDE_DIRS "stb_image.h" REQUIRED)`.
+
+### 4. Preview images (`source/frontend/StarWorkshopPreview.{hpp,cpp}`)
+
+- `WorkshopPreviewCache` — `get(itemId, url)` returns the decoded image if
+  ready, starting an `HttpClient::getAsync` fetch the first time an item is
+  requested (only if `isAllowedWorkshopPreviewUrl`). `update()` polls finished
+  fetches, decodes with `decodeImage`, and shrinks with `fitImage(…, 512)`.
+  Holds at most 64 entries, evicting the least recently requested. Fetches are
+  only made for the selected item.
+- `WorkshopPreviewWidget` — a `Widget` that uploads its image with
+  `Renderer::createTexture` and draws it centered and aspect-fitted in its
+  bounds as a `RenderQuad`. With no image it draws
+  `/interface/modsmenu/modicon.png` as a placeholder. Preview images never
+  enter the asset system.
+
+### 5. Workshop menu (`source/frontend/StarWorkshopMenu.{hpp,cpp}`)
+
+A `Pane` built with `GuiReader` from
+`assets/opensb/interface/workshopmenu/workshopmenu.config`, reusing vanilla
+`/interface/modsmenu/` background art (359×245).
 
 Widgets:
 
-- Search text box plus a Search button (Enter also searches).
-- Sort selector: Popular / Recent / Most Subscribed.
-- Result list (`ListWidget`), one row per item: title, author, state badge
-  (Subscribed / Downloading n% / Failed).
-- Prev / Next page buttons with a "Page n of m" label.
-- Details panel: preview image, title, author, subscriber count, description,
-  Subscribe/Unsubscribe button, Retry button (shown on failure), "Open in
-  Steam" button (uses `desktopService()->openUrl` with
-  `https://steamcommunity.com/sharedfiles/filedetails/?id=<id>`).
-- Status line for loading and error messages, with a Retry button.
-- "Apply changes" button, visible when `WorkshopApplyState::hasChanges()`.
+- Search text box (Enter searches) and a Search button.
+- Sort buttons: Popular / Recent / Subscribed (checkable, one checked).
+- Result list: one row per item with a truncated title and a state badge
+  (Subscribed / n% / Update / Failed).
+- Prev / Next buttons and a "Page n of m" label (50 items per page).
+- Details: preview widget, title, author, subscriber count, status,
+  description (scrollable), Subscribe/Unsubscribe button, Retry button (shown
+  when the download failed), Steam button (opens
+  `https://steamcommunity.com/sharedfiles/filedetails/?id=<id>` via
+  `desktopService()->openUrl`, or copies it to the clipboard without one).
+- Status line in the list area for loading and error messages, with a Retry
+  button that repeats the failed action.
+- Apply button plus a label, visible once there are changes.
 
-`update(dt)` polls request status, item statuses for visible rows, preview
-fetches, and the active dependency resolver.
+`update(dt)` starts the first query, polls the active query, the dependency
+resolver and pending subscribe/unsubscribe requests, updates row badges and
+the details panel, and refreshes the Apply button.
 
-### 4. Preview images
+### 6. Dependency dialog (`source/frontend/StarWorkshopDependencyDialog.{hpp,cpp}`)
 
-- Fetched asynchronously with `cpr::GetAsync` from the Steam CDN preview URL.
-- Decoded with `stb_image` (single header vendored into `source/extern/`), which
-  supports JPG, PNG and GIF (first frame). Decoded images are converted to
-  `Star::Image`.
-- Registered into a `MemoryAssetSource` under
-  `/workshop/previews/<id>.png` so `ImageWidget::setImage` can use them.
-- Fetched only for the selected item and visible rows. Cached in memory for the
-  session, capped at 64 entries with least-recently-used eviction.
-- Images wider or taller than 512px are downscaled before caching.
-- Only URLs whose host ends in `steamuserimages-a.akamaihd.net` or
-  `images.steamusercontent.com` are fetched. Anything else gets the
-  placeholder. Items do not control arbitrary fetch targets.
+A modal `Pane` built from
+`assets/opensb/interface/workshopmenu/dependencies.config`, reusing vanilla
+`/interface/confirmation/` art. Two modes:
 
-### 5. Title screen wiring
+- `displayRequirements(requiredTitles, unavailableTitles, callback)` — message
+  "This mod also needs: A, B, C" and, if any, "Unavailable (hidden or
+  removed): D. This mod may not work." Buttons: **All** / **Just this** /
+  **Cancel**. Long lists show the first 6 titles and "and N more".
+- `displayResolveFailure(callback)` — message "Couldn't check requirements
+  for this mod." Buttons: **Anyway** / **Cancel**.
 
-- Add `TitleState::Workshop`.
-- Add a `"workshop"` entry to the `buttonCallbacks` map in `TitleScreen`.
-- Add the button in `assets/opensb/interface/windowconfig/title.config.patch.lua`:
-  after the existing offset loop, find the vanilla `mods` entry in
-  `data.mainMenuButtons` and append a copy with `key = "workshop"`, images
-  `/interface/title/workshop.png` and `/interface/title/workshophover.png`, and
-  an offset directly beside the Mods button (same row, shifted by the Mods
-  button's image width). If no `mods` entry exists (for example, a mod replaced
-  the menu), the patch skips adding the button.
-- Add `initWorkshopMenu()` following `initModsMenu()`, registering pane
-  `"workshopMenu"`, displayed from `switchState`.
-- If `appController()->userGeneratedContentService()` is null, the button is
-  disabled and its tooltip reads "Requires Steam".
+Dismissing the dialog any other way counts as Cancel.
 
-### 6. Apply changes
+### 7. Title screen wiring
 
-1. Enabled only when `canApply()`: there are changes and no pending downloads.
-   While downloads are running, the label reads "Waiting for N downloads…".
-2. On click: close the Workshop pane and show the existing loading cinematic.
-3. Collect installed directories via `subscribedContentIds()` +
-   `contentDownloadDirectory()`. This logic is extracted from
-   `ClientApplication::loadMods()` into a shared helper so startup and Apply
-   use identical code.
-4. Call `Root::singleton().loadMods(dirs)`, which triggers `Root::reload()`.
-5. Re-fetch `m_root->configuration()` after reload, as `updateMods()` does.
-6. Rebuild the `TitleScreen` so no pane holds widgets or images from the old
-   assets. Return to `TitleState::Main`.
+- Add `TitleState::Workshop` and a `"workshop"` button callback.
+- `assets/opensb/interface/windowconfig/title.config.patch.lua` appends a
+  `workshop` entry to `mainMenuButtons` using
+  `/interface/modsmenu/workshopbutton.png` / `workshopbuttonhover.png`,
+  right-anchored on the same row as the vanilla `mods` button and 90px further
+  left. If no `mods` entry exists, no button is added.
+- If `applicationController()->userGeneratedContentService()` is null, the
+  `workshop` button is skipped and the menu is not registered.
+- `initWorkshopMenu()` registers pane `"workshopMenu"` following
+  `initModsMenu()`. `back()` from Workshop returns to Main.
+
+### 8. Apply changes
+
+1. The Apply button is enabled only when `canApply()`: there are changes and
+   none of the changed items are still downloading. While downloads run, the
+   label reads "Waiting for N downloads".
+2. On click, the menu calls a callback given by `TitleScreen`, which sets a
+   flag. `TitleScreen::takeModReloadRequest()` returns and clears it.
+3. `ClientApplication::updateTitle` checks the flag right after
+   `m_titleScreen->update(dt)`. If set, it stops title music, sets
+   `m_forceModReload = true`, and calls `changeState(MainAppState::Mods)`,
+   then returns.
+4. Leaving Title destroys the `TitleScreen`. `updateMods` downloads any new
+   subscriptions, collects installed directories and calls
+   `Root::loadMods(dirs)`. With `m_forceModReload` set, it reloads even when
+   the directory list is empty (the player unsubscribed from everything). The
+   flag is then cleared.
+5. The normal Splash → Title path fully loads Root and creates a fresh
+   `TitleScreen`, so no pane holds widgets or images from the old assets.
 
 Apply is reachable only from the title screen and never while in a world.
-
-The pane asks `ClientApplication` to reload through a callback given to
-`TitleScreen` at construction, e.g. `std::function<void()> requestModReload`.
 Frontend code never calls `Root::loadMods` directly.
 
 ## Dependency auto-subscribe flow
 
-1. The player clicks Subscribe on item X.
-2. Start a `WorkshopDependencyResolver` for X. The Subscribe button shows
-   "Checking requirements…".
-3. When it resolves:
-   - `toSubscribe` empty and `unavailable` empty → subscribe to X directly.
-   - Otherwise → show a confirmation popup:
-     "This mod also needs: A, B, C." followed by, if any are unavailable,
-     "Unavailable (hidden or removed): D — this mod may not work."
-     Buttons: **Subscribe all** / **Just this mod** / **Cancel**.
-4. **Subscribe all** subscribes X and everything in `toSubscribe`.
-   **Just this mod** subscribes to X only. **Cancel** does nothing.
+1. The player clicks Subscribe on item X. The button shows "Checking...".
+2. The menu creates a `WorkshopDependencyResolver` for X and drives it with
+   `queryItemDetails` until it finishes or fails.
+3. When it finishes:
+   - `toSubscribe` and `unavailable` both empty → subscribe to X.
+   - Otherwise → show the dependency dialog. **All** subscribes X and every
+     `toSubscribe` id; **Just this** subscribes X; **Cancel** does nothing.
+4. If it fails → show the failure dialog. **Anyway** subscribes X; **Cancel**
+   does nothing.
 5. Unsubscribing never removes dependencies.
-6. If resolution fails (a network error while fetching details), the popup
-   reads "Couldn't check requirements" with **Subscribe anyway** / **Cancel**.
 
 ## Error handling
 
 | Situation | Behavior |
 |---|---|
-| No UGC service (Steam not running, or non-Steam build) | Workshop button disabled, tooltip "Requires Steam". |
-| Query fails or times out (30s) | List area shows "Couldn't reach Workshop" + Retry. |
-| Preview fetch/decode fails or disallowed host | Placeholder image. Logged at debug level. No popup. |
-| Subscribe/unsubscribe call fails | Status line shows "Subscribe failed" + Retry; item state unchanged. |
-| Download fails | Row badge "Download failed" + Retry (calls `DownloadItem` again). Apply skips items that are not installed. |
-| Apply pressed while downloading | Not possible; button disabled with "Waiting for N downloads…". |
-| Reload throws on a broken mod | Same path as a startup mod failure: `ClientApplication::setError`, which shows the error screen and returns to the title. The Workshop menu remains usable to unsubscribe. |
-| Leaving the menu mid-download | Steam continues in the background; apply state is kept on `TitleScreen` and survives reopening the pane. |
-| Game closed before Apply | No special handling; subscriptions load at next launch as today. |
+| No UGC service (Steam not running, or non-Steam build) | Workshop button not shown. |
+| Query fails or times out (30s) | Status "Couldn't reach Workshop" + Retry (repeats the same page). |
+| Preview fetch/decode fails or disallowed host | Placeholder image; logged at debug level. |
+| Subscribe/unsubscribe fails | Status "Subscribe failed" / "Unsubscribe failed" + Retry. |
+| Download fails | Row badge "Failed"; details Retry button calls `retryDownload`. Failed items don't block Apply. |
+| Apply pressed while downloading | Not possible; button disabled with "Waiting for N downloads". |
+| Reload throws on a broken mod | Same path as a startup mod failure. The Workshop menu is still reachable afterwards to unsubscribe. |
+| Leaving the menu mid-download | Steam continues; the menu pane and its apply state persist while the title screen exists. |
+| Game closed before Apply | Subscriptions load at next launch, as today. |
 
 ## Testing
 
-Automated (gtest, added to the game test target in `source/test/CMakeLists.txt`,
-file `workshop_logic_test.cpp`), using a fake details fetcher:
+Automated:
 
-- Resolver: no dependencies; one level; multiple levels; diamond (A→B, A→C,
-  B→D, C→D visits D once); cycle (A→B→A terminates); already-subscribed items
-  excluded from `toSubscribe`; unavailable items reported; a fetch failure
-  yields a failed status.
-- Apply state: no changes → cannot apply; change + downloading → cannot apply,
-  correct pending count; change + all installed → can apply; state resets
-  after apply.
-- Preview host allowlist: accepted and rejected URLs.
+- `source/test/workshop_logic_test.cpp` in a new `workshop_tests` executable
+  (links core + `game/StarWorkshopLogic.cpp` only, labelled `NoAssets` so the
+  `linux-release` test preset runs it):
+  - Resolver: no dependencies; one level; multiple levels; diamond (D fetched
+    once); cycle terminates; already-subscribed excluded from `toSubscribe`;
+    missing and `available == false` reported unavailable; `fail()`;
+    `nextBatch()` empty while awaiting.
+  - Apply state: no changes; change + downloading; download finishes; ignores
+    unchanged ids; reset.
+  - Preview URL allowlist: accepted and rejected URLs.
+- `source/test/image_decode_test.cpp` in `core_tests`: decodes a hand-built
+  2×2 BMP with correct orientation and colors; rejects garbage bytes;
+  `fitImage` shrinks large images and keeps small ones.
 
-Manual checklist (Steam-enabled build, real account):
+Manual checklist (Steam-enabled build installed into a local OpenStarbound
+client, real Steam account):
 
-1. Workshop button enabled with Steam running; disabled with Steam closed.
-2. Search returns matching results; each sort order changes results; paging works.
-3. Details panel shows the preview image (including a JPG preview).
-4. Subscribe to a mod with no dependencies → downloads → Apply → mod appears in
-   the Mods menu.
-5. Subscribe to a mod that has dependencies → popup lists them → Subscribe all
-   → all download.
-6. "Just this mod" and "Cancel" behave as described.
+1. Workshop button visible with Steam running; absent when launched without Steam.
+2. Search returns matching results; each sort changes results; paging works.
+3. Details show a preview image (including a JPG preview), author name, subscribers.
+4. Subscribe to a mod with no dependencies → downloads → Apply → mod appears in the Mods menu.
+5. Subscribe to a mod with dependencies → dialog lists them → All → all download.
+6. "Just this" and "Cancel" behave as described.
 7. Unsubscribe → Apply → mod gone from the Mods menu; its dependencies remain.
 8. Disconnect network → search shows the error + Retry; reconnect → Retry works.
 9. Apply is disabled while a download is in progress.
@@ -276,18 +326,20 @@ Manual checklist (Steam-enabled build, real account):
 New:
 
 - `source/game/StarWorkshopLogic.hpp`, `source/game/StarWorkshopLogic.cpp`
+- `source/core/StarImageDecode.hpp`, `source/core/StarImageDecode.cpp`
+- `source/frontend/StarWorkshopPreview.hpp`, `source/frontend/StarWorkshopPreview.cpp`
+- `source/frontend/StarWorkshopDependencyDialog.hpp`, `source/frontend/StarWorkshopDependencyDialog.cpp`
 - `source/frontend/StarWorkshopMenu.hpp`, `source/frontend/StarWorkshopMenu.cpp`
-- `source/extern/stb_image.h`
-- `source/test/workshop_logic_test.cpp`
-- `assets/opensb/interface/workshopmenu/workshopmenu.config` (+ placeholder image)
-- `assets/opensb/interface/title/workshop.png`, `assets/opensb/interface/title/workshophover.png`
+- `source/test/workshop_logic_test.cpp`, `source/test/image_decode_test.cpp`
+- `assets/opensb/interface/workshopmenu/workshopmenu.config`
+- `assets/opensb/interface/workshopmenu/dependencies.config`
 
 Modified:
 
-- `assets/opensb/interface/windowconfig/title.config.patch.lua`
-
+- `source/vcpkg.json`, `source/CMakeLists.txt`
+- `source/core/CMakeLists.txt`, `source/game/CMakeLists.txt`, `source/frontend/CMakeLists.txt`, `source/test/CMakeLists.txt`
 - `source/platform/StarUserGeneratedContentService.hpp`
 - `source/application/StarUserGeneratedContentService_pc_steam.{hpp,cpp}`
 - `source/frontend/StarTitleScreen.{hpp,cpp}`
-- `source/client/StarClientApplication.{hpp,cpp}` (shared UGC directory helper, reload callback)
-- `source/game/CMakeLists.txt`, `source/frontend/CMakeLists.txt`, `source/test/CMakeLists.txt`
+- `source/client/StarClientApplication.{hpp,cpp}`
+- `assets/opensb/interface/windowconfig/title.config.patch.lua`
