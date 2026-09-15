@@ -62,6 +62,7 @@ SET (star_frontend_HEADERS
     StarVoiceLuaBindings.hpp
     StarVoiceSettingsMenu.hpp
     StarWireInterface.hpp
+    StarWorkshopDependencyDialog.hpp
     StarWorkshopPreview.hpp
   )
 
@@ -117,6 +118,7 @@ SET (star_frontend_SOURCES
     StarVoiceLuaBindings.cpp
     StarVoiceSettingsMenu.cpp
     StarWireInterface.cpp
+    StarWorkshopDependencyDialog.cpp
     StarWorkshopPreview.cpp
   )
 
