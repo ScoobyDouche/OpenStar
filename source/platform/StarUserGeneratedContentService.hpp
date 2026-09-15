@@ -62,7 +62,7 @@ public:
     Finished = 2
   };
 	
-  ~UserGeneratedContentService() = default;
+  virtual ~UserGeneratedContentService() = default;
 
   // Returns a list of the content the user is currently subscribed to.
   virtual StringList subscribedContentIds() const = 0;
@@ -74,6 +74,30 @@ public:
   // Start downloading subscribed content in the background, returns true when
   // all content is synchronized.
   virtual UserGeneratedContentService::UGCState triggerContentDownload() = 0;
+
+  // Starts a Workshop search.  A non-empty searchText ranks by relevance and
+  // ignores sort.  Pages start at 1 and hold up to 50 items.
+  virtual WorkshopRequestId queryItems(String const& searchText, WorkshopSort sort, uint32_t page) = 0;
+  // Starts a details request for specific items.  Requested ids missing from
+  // the result are returned with available == false.
+  virtual WorkshopRequestId queryItemDetails(StringList const& ids) = 0;
+  // Status of any request.  Requests still pending after 30 seconds, and
+  // unknown ids, report Failed.
+  virtual WorkshopRequestStatus requestStatus(WorkshopRequestId request) const = 0;
+  // Removes a query request, cancelling it if still pending.  Returns the page
+  // only if the query succeeded.
+  virtual Maybe<WorkshopPage> takeQueryResult(WorkshopRequestId request) = 0;
+
+  virtual WorkshopRequestId subscribe(String const& id) = 0;
+  virtual WorkshopRequestId unsubscribe(String const& id) = 0;
+  // Removes a subscribe or unsubscribe request, cancelling it if still pending.
+  virtual void releaseRequest(WorkshopRequestId request) = 0;
+
+  virtual WorkshopItemStatus itemStatus(String const& id) const = 0;
+  // Clears a failed download and asks Steam to download the item again.
+  virtual bool retryDownload(String const& id) = 0;
+  // Display name for a Steam ID, or nothing while it is still being fetched.
+  virtual Maybe<String> personaName(String const& steamId) = 0;
 };
 
 }
