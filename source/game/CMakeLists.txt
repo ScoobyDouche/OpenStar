@@ -7,6 +7,7 @@ INCLUDE_DIRECTORIES (
   )
 
 SET (star_game_HEADERS
+    StarWorkshopLogic.hpp
     StarActorMovementController.hpp
     StarAiDatabase.hpp
     StarAiTypes.hpp
@@ -280,6 +281,7 @@ SET (star_game_HEADERS
   )
 
 SET (star_game_SOURCES
+    StarWorkshopLogic.cpp
     StarActorMovementController.cpp
     StarAiDatabase.cpp
     StarAiTypes.cpp
