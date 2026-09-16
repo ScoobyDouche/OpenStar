@@ -999,8 +999,6 @@ void ClientApplication::updateTitle(float dt) {
           return "In Main Menu";
         case TitleState::Options:
           return "In Options";
-        case TitleState::Mods:
-          return "In Mods";
         case TitleState::Workshop:
           return "In Workshop";
         case TitleState::SinglePlayerSelectCharacter:

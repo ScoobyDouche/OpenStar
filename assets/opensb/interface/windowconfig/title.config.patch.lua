@@ -5,22 +5,22 @@ function patch(data)
     end
   end
 
-  -- Place a Workshop button beside the vanilla Mods button.
-  local modsButton
-  for _, v in pairs(data.mainMenuButtons) do
-    if v.key == "mods" then
-      modsButton = v
+  -- The Mods menu is gone, the Workshop browser lists installed mods instead,
+  -- so the Workshop button takes over the Mods button's slot.
+  local modsOffset
+  for i = #data.mainMenuButtons, 1, -1 do
+    if data.mainMenuButtons[i].key == "mods" then
+      modsOffset = data.mainMenuButtons[i].offset
+      table.remove(data.mainMenuButtons, i)
     end
   end
-  if modsButton then
-    table.insert(data.mainMenuButtons, {
-      key = "workshop",
-      button = "/interface/modsmenu/workshopbutton.png",
-      hover = "/interface/modsmenu/workshopbuttonhover.png",
-      offset = jarray{modsButton.offset[1] - 90, modsButton.offset[2]},
-      rightAnchored = true
-    })
-  end
+  table.insert(data.mainMenuButtons, {
+    key = "workshop",
+    button = "/interface/modsmenu/workshopbutton.png",
+    hover = "/interface/modsmenu/workshopbuttonhover.png",
+    offset = modsOffset or jarray{-22, 2},
+    rightAnchored = true
+  })
 
   data.skyBackdropDarken = jarray{0, 0, 0, 64}
   local rng = sb.makeRandomSource(os.time())

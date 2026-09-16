@@ -15,8 +15,13 @@ In scope:
 
 - Steam Workshop only, via the Steam UGC API (no third-party mirrors, no other
   mod sites, no SteamCMD).
-- Search by text, browse by Popular or Recent, and a Mine tab listing the
-  player's own subscriptions. Results are paged 50 at a time.
+- Search by text, browse by Popular or Recent, and a Subscribed tab listing the
+  player's subscriptions followed by their other installed mods. Results are
+  paged 50 at a time.
+- Replaces the old Mods menu entirely: its button, pane and `StarModsMenu`
+  files are removed, and the Subscribed tab covers what it showed (name,
+  author, version, path, description and homepage link for every loaded asset
+  source). The Workshop button takes over the Mods button's slot.
 - Details panel: title, author, description, preview image, subscriber count,
   Subscribe / Unsubscribe, download progress, "Open in Steam" link.
 - Dependency auto-subscribe with a confirmation popup.
@@ -196,10 +201,14 @@ A `Pane` built with `GuiReader` from
 Widgets:
 
 - Search text box (Enter searches) and a Search button.
-- Mode buttons: Popular / Recent / Mine (checkable, one checked). Mine pages
-  through `subscribedContentIds()` resolved with `queryItemDetails()`, and
-  searching leaves it. The service still offers the MostSubscribed sort, which
-  the UI no longer uses because "Subscribed" read as "my subscriptions".
+- Mode buttons: Popular / Recent / Subscribed (checkable, one checked).
+  Subscribed pages through `subscribedContentIds()` resolved with
+  `queryItemDetails()`, then every loaded asset source that is not one of those
+  subscriptions (matched by `contentDownloadDirectory()` prefix, so a mod is
+  never listed twice). Local rows show version and path instead of subscriber
+  count, cannot be subscribed to, and their button opens the mod's homepage.
+  Searching leaves the tab. The service still offers the MostSubscribed sort,
+  which the UI no longer uses because "Subscribed" read as "my subscriptions".
 - Result list: one row per item with a truncated title and a state badge
   (Subscribed / n% / Update / Failed).
 - Prev / Next buttons and a "Page n of m" label (50 items per page).

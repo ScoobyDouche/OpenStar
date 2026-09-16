@@ -3,6 +3,7 @@
 #include "StarWorkshopDependencyDialog.hpp"
 #include "StarRoot.hpp"
 #include "StarAssets.hpp"
+#include "StarFile.hpp"
 #include "StarGuiReader.hpp"
 #include "StarGuiContext.hpp"
 #include "StarPaneManager.hpp"
@@ -19,9 +20,15 @@ static uint32_t const WorkshopPageSize = 50;
 static size_t const WorkshopRowTitleLimit = 26;
 static size_t const WorkshopDetailTitleLimit = 32;
 
+static bool pathStartsWith(String const& path, String const& prefix) {
+  std::string const& full = path.utf8();
+  std::string const& start = prefix.utf8();
+  return !start.empty() && full.size() >= start.size() && full.compare(0, start.size(), start) == 0;
+}
+
 WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr service, std::function<void()> requestApply)
   : m_manager(manager), m_service(std::move(service)), m_requestApply(std::move(requestApply)),
-    m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false), m_showMine(false) {
+    m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false), m_showSubscribed(false) {
   auto assets = Root::singleton().assets();
 
   m_previewCache = make_shared<WorkshopPreviewCache>();
@@ -38,7 +45,7 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
     });
   reader.registerCallback("sortPopular", [this](Widget*) { setSort(WorkshopSort::Popular); });
   reader.registerCallback("sortRecent", [this](Widget*) { setSort(WorkshopSort::Recent); });
-  reader.registerCallback("sortMine", [this](Widget*) { showMine(); });
+  reader.registerCallback("sortSubscribed", [this](Widget*) { showSubscribed(); });
   reader.registerCallback("prevPage", [this](Widget*) {
       if (m_page > 1)
         requestPage(m_page - 1);
@@ -49,7 +56,7 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
     });
   reader.registerCallback("subscribe", [this](Widget*) { toggleSubscription(); });
   reader.registerCallback("retryDownload", [this](Widget*) { retryDownload(); });
-  reader.registerCallback("openSteam", [this](Widget*) { openInSteam(); });
+  reader.registerCallback("openSteam", [this](Widget*) { openLink(); });
   reader.registerCallback("apply", [this](Widget*) {
       if (m_applyState.canApply())
         m_requestApply();
@@ -62,19 +69,20 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_statusRetry = fetchChild<ButtonWidget>("statusRetry");
   m_sortPopular = fetchChild<ButtonWidget>("sortPopular");
   m_sortRecent = fetchChild<ButtonWidget>("sortRecent");
-  m_sortMine = fetchChild<ButtonWidget>("sortMine");
+  m_sortSubscribed = fetchChild<ButtonWidget>("sortSubscribed");
   m_prevPage = fetchChild<ButtonWidget>("prevPage");
   m_nextPage = fetchChild<ButtonWidget>("nextPage");
   m_pageLabel = fetchChild<LabelWidget>("pageLabel");
 
   m_title = fetchChild<LabelWidget>("title");
   m_author = fetchChild<LabelWidget>("author");
+  m_subscribersLabel = fetchChild<LabelWidget>("subscribersLabel");
   m_subscribers = fetchChild<LabelWidget>("subscribers");
   m_itemState = fetchChild<LabelWidget>("itemState");
   m_description = fetchChild<LabelWidget>("descriptionArea.description");
   m_subscribe = fetchChild<ButtonWidget>("subscribe");
   m_retryDownload = fetchChild<ButtonWidget>("retryDownload");
-  m_openSteam = fetchChild<ButtonWidget>("openSteam");
+  m_openLink = fetchChild<ButtonWidget>("openSteam");
   m_applyLabel = fetchChild<LabelWidget>("applyLabel");
   m_apply = fetchChild<ButtonWidget>("apply");
 
@@ -105,9 +113,9 @@ void WorkshopMenu::update(float dt) {
 
 void WorkshopMenu::search() {
   m_searchText = m_searchBox->getText();
-  // Searching browses the Workshop rather than the player's own subscriptions.
+  // Searching browses the Workshop rather than what the player already has.
   if (!m_searchText.empty())
-    m_showMine = false;
+    m_showSubscribed = false;
   updateModeButtons();
   requestPage(1);
 }
@@ -120,45 +128,117 @@ void WorkshopMenu::requestPage(uint32_t page) {
   m_page = page;
 
   m_items.clear();
+  m_pendingLocals.clear();
   m_list->clear();
   m_prevPage->setEnabled(false);
   m_nextPage->setEnabled(false);
 
-  if (m_showMine) {
-    // Re-read the subscriptions each time so unsubscribes drop out.
-    m_mineIds = m_service->subscribedContentIds();
-    m_pageCount = std::max<uint32_t>(1, (uint32_t)((m_mineIds.size() + WorkshopPageSize - 1) / WorkshopPageSize));
-    if (m_page > m_pageCount)
-      m_page = m_pageCount;
-
-    if (m_mineIds.empty()) {
-      m_query = {};
-      m_pageLabel->setText(strf("Page {} of {}", m_page, m_pageCount));
-      setStatus("You aren't subscribed to any mods");
-      return;
-    }
-
-    StringList pageIds;
-    size_t start = (size_t)(m_page - 1) * WorkshopPageSize;
-    for (size_t i = start; i < m_mineIds.size() && i < start + WorkshopPageSize; ++i)
-      pageIds.append(m_mineIds[i]);
-    m_query = m_service->queryItemDetails(pageIds);
-  } else {
+  if (!m_showSubscribed) {
     m_query = m_service->queryItems(m_searchText, m_sort, m_page);
+    setStatus("Loading...");
+    return;
   }
 
+  // Re-read both lists each time so subscribing and unsubscribing show up.
+  refreshSubscribedLists();
+  size_t total = m_subscribedIds.size() + m_localSources.size();
+  m_pageCount = std::max<uint32_t>(1, (uint32_t)((total + WorkshopPageSize - 1) / WorkshopPageSize));
+  if (m_page > m_pageCount)
+    m_page = m_pageCount;
+
+  if (total == 0) {
+    m_query = {};
+    populateList();
+    setStatus("Nothing subscribed or installed");
+    return;
+  }
+
+  size_t start = (size_t)(m_page - 1) * WorkshopPageSize;
+  size_t end = std::min(total, start + (size_t)WorkshopPageSize);
+
+  StringList pageIds;
+  for (size_t i = start; i < end; ++i) {
+    if (i < m_subscribedIds.size())
+      pageIds.append(m_subscribedIds[i]);
+    else
+      m_pendingLocals.append(localItem(m_localSources[i - m_subscribedIds.size()]));
+  }
+
+  if (pageIds.empty()) {
+    // This page is only installed mods, so there is nothing to ask Steam for.
+    m_query = {};
+    m_items = m_pendingLocals;
+    m_pendingLocals.clear();
+    setStatus("");
+    populateList();
+    return;
+  }
+
+  m_query = m_service->queryItemDetails(pageIds);
   setStatus("Loading...");
+}
+
+void WorkshopMenu::refreshSubscribedLists() {
+  m_subscribedIds = m_service->subscribedContentIds();
+
+  StringList workshopDirectories;
+  for (auto const& id : m_subscribedIds) {
+    if (auto directory = m_service->contentDownloadDirectory(id))
+      workshopDirectories.append(*directory);
+  }
+
+  // Everything loaded that did not come from a subscription: local mods in the
+  // mods folder plus the base game assets.
+  m_localSources.clear();
+  for (auto const& source : Root::singleton().assets()->assetSources()) {
+    bool fromWorkshop = false;
+    for (auto const& directory : workshopDirectories) {
+      if (pathStartsWith(source, directory)) {
+        fromWorkshop = true;
+        break;
+      }
+    }
+    if (!fromWorkshop)
+      m_localSources.append(source);
+  }
+}
+
+WorkshopMenu::MenuItem WorkshopMenu::localItem(String const& sourcePath) const {
+  auto metadata = Root::singleton().assets()->assetSourceMetadata(sourcePath);
+
+  MenuItem entry;
+  entry.local = true;
+  entry.name = bestModName(metadata, sourcePath);
+  entry.author = metadata.value("author", "").toString();
+  entry.description = metadata.value("description", "").toString();
+  entry.path = sourcePath;
+  entry.link = metadata.value("link", "").toString();
+  if (auto version = metadata.ptr("version"))
+    entry.version = version->printString();
+  return entry;
+}
+
+String WorkshopMenu::bestModName(JsonObject const& metadata, String const& sourcePath) {
+  if (auto name = metadata.ptr("friendlyName"))
+    return name->toString();
+  if (auto name = metadata.ptr("name"))
+    return name->toString();
+
+  String baseName = File::baseName(sourcePath);
+  if (baseName.contains("."))
+    baseName.rextract(".");
+  return baseName;
 }
 
 void WorkshopMenu::setSort(WorkshopSort sort) {
   m_sort = sort;
-  m_showMine = false;
+  m_showSubscribed = false;
   updateModeButtons();
   requestPage(1);
 }
 
-void WorkshopMenu::showMine() {
-  m_showMine = true;
+void WorkshopMenu::showSubscribed() {
+  m_showSubscribed = true;
   m_searchText = "";
   m_searchBox->setText("", false);
   updateModeButtons();
@@ -166,9 +246,9 @@ void WorkshopMenu::showMine() {
 }
 
 void WorkshopMenu::updateModeButtons() {
-  m_sortPopular->setChecked(!m_showMine && m_sort == WorkshopSort::Popular);
-  m_sortRecent->setChecked(!m_showMine && m_sort == WorkshopSort::Recent);
-  m_sortMine->setChecked(m_showMine);
+  m_sortPopular->setChecked(!m_showSubscribed && m_sort == WorkshopSort::Popular);
+  m_sortRecent->setChecked(!m_showSubscribed && m_sort == WorkshopSort::Recent);
+  m_sortSubscribed->setChecked(m_showSubscribed);
 }
 
 void WorkshopMenu::pollQuery() {
@@ -184,16 +264,34 @@ void WorkshopMenu::pollQuery() {
 
   if (status == WorkshopRequestStatus::Failed || !result) {
     uint32_t page = m_page;
+    m_pendingLocals.clear();
     setStatus("Couldn't reach Workshop", [this, page]() { requestPage(page); });
     return;
   }
 
-  m_items = std::move(result->items);
-  // In Mine the page count comes from the subscription list, not the query.
-  if (!m_showMine)
+  m_items.clear();
+  for (auto const& item : result->items) {
+    MenuItem entry;
+    entry.id = item.id;
+    // Removed items come back from Steam with no title.
+    entry.name = item.title.empty() ? item.id : item.title;
+    entry.author = item.authorId;
+    entry.description = item.description;
+    entry.previewUrl = item.previewUrl;
+    entry.subscriberCount = item.subscriberCount;
+    entry.available = item.available;
+    m_items.append(std::move(entry));
+  }
+
+  if (m_showSubscribed) {
+    m_items.appendAll(m_pendingLocals);
+    m_pendingLocals.clear();
+  } else {
     m_pageCount = std::max<uint32_t>(1, (result->totalResults + WorkshopPageSize - 1) / WorkshopPageSize);
+  }
+
   if (m_items.empty())
-    setStatus(m_showMine ? "You aren't subscribed to any mods" : "No mods found");
+    setStatus(m_showSubscribed ? "Nothing subscribed or installed" : "No mods found");
   else
     setStatus("");
   populateList();
@@ -203,8 +301,7 @@ void WorkshopMenu::populateList() {
   m_list->clear();
   for (auto const& item : m_items) {
     auto row = m_list->addItem();
-    // Removed items come back from Steam with no title.
-    String title = item.title.empty() ? item.id : item.title;
+    String title = item.name;
     if (title.size() > WorkshopRowTitleLimit)
       title = title.substr(0, WorkshopRowTitleLimit - 3) + "...";
     row->fetchChild<LabelWidget>("name")->setText(title);
@@ -217,20 +314,20 @@ void WorkshopMenu::populateList() {
 
 void WorkshopMenu::toggleSubscription() {
   auto item = selectedItem();
-  if (!item || m_resolver)
+  if (!item || item->local || m_resolver)
     return;
 
   if (m_service->itemStatus(item->id).state == WorkshopItemState::NotSubscribed)
-    startSubscribe(*item);
+    startSubscribe(item->id);
   else
     startAction(item->id, false);
 }
 
-void WorkshopMenu::startSubscribe(WorkshopItem const& item) {
+void WorkshopMenu::startSubscribe(String const& id) {
   StringSet subscribed;
-  for (auto const& id : m_service->subscribedContentIds())
-    subscribed.add(id);
-  m_resolver = WorkshopDependencyResolver(item.id, subscribed);
+  for (auto const& subscribedId : m_service->subscribedContentIds())
+    subscribed.add(subscribedId);
+  m_resolver = WorkshopDependencyResolver(id, subscribed);
   m_resolverRequest = {};
 }
 
@@ -331,16 +428,20 @@ void WorkshopMenu::pollActions() {
 }
 
 void WorkshopMenu::retryDownload() {
-  if (auto item = selectedItem())
+  auto item = selectedItem();
+  if (item && !item->local)
     m_service->retryDownload(item->id);
 }
 
-void WorkshopMenu::openInSteam() {
+void WorkshopMenu::openLink() {
   auto item = selectedItem();
   if (!item)
     return;
 
-  String url = strf("https://steamcommunity.com/sharedfiles/filedetails/?id={}", item->id);
+  String url = item->local ? item->link : strf("https://steamcommunity.com/sharedfiles/filedetails/?id={}", item->id);
+  if (url.empty())
+    return;
+
   auto& guiContext = GuiContext::singleton();
   if (auto desktopService = guiContext.applicationController()->desktopService())
     desktopService->openUrl(url);
@@ -350,8 +451,11 @@ void WorkshopMenu::openInSteam() {
 
 void WorkshopMenu::updateRows() {
   for (size_t i = 0; i < m_items.size() && i < m_list->listSize(); ++i) {
-    auto status = m_service->itemStatus(m_items[i].id);
-    m_list->itemAt(i)->fetchChild<LabelWidget>("state")->setText(stateText(status));
+    auto stateLabel = m_list->itemAt(i)->fetchChild<LabelWidget>("state");
+    if (m_items[i].local)
+      stateLabel->setText("Installed");
+    else
+      stateLabel->setText(stateText(m_service->itemStatus(m_items[i].id)));
   }
 }
 
@@ -369,24 +473,46 @@ void WorkshopMenu::updateDetails() {
       m_preview->setImage({});
     }
     m_subscribe->setEnabled(false);
-    m_openSteam->setEnabled(false);
+    m_openLink->setEnabled(false);
     m_retryDownload->setVisibility(false);
     return;
   }
 
-  if (m_detailsItemId != item->id) {
-    m_detailsItemId = item->id;
+  String itemKey = item->local ? item->path : item->id;
+  if (m_detailsItemId != itemKey) {
+    m_detailsItemId = itemKey;
+
     // Kept to one line so it never runs into the labels beside the preview.
-    String title = item->title.empty() ? item->id : item->title;
+    String title = item->name;
     if (title.size() > WorkshopDetailTitleLimit)
       title = title.substr(0, WorkshopDetailTitleLimit - 3) + "...";
     m_title->setText(title);
-    m_subscribers->setText(toString(item->subscriberCount));
-    m_description->setText(item->description);
+
+    m_subscribersLabel->setText(item->local ? "VERSION" : "SUBSCRIBERS");
+    if (item->local) {
+      m_subscribers->setText(item->version.empty() ? "-" : item->version);
+      // The old Mods menu showed where each source was loaded from.
+      m_description->setText(strf("^#b9b5b2;{}^reset;\n\n{}", item->path, item->description));
+    } else {
+      m_subscribers->setText(toString(item->subscriberCount));
+      m_description->setText(item->description);
+    }
+  }
+
+  if (item->local) {
+    m_author->setText(item->author.empty() ? "-" : item->author);
+    m_itemState->setText("Installed");
+    m_preview->setImage({});
+    m_subscribe->setEnabled(false);
+    m_subscribe->setText("Subscribe");
+    m_retryDownload->setVisibility(false);
+    m_openLink->setText("Link");
+    m_openLink->setEnabled(!item->link.empty());
+    return;
   }
 
   auto status = m_service->itemStatus(item->id);
-  m_author->setText(m_service->personaName(item->authorId).value(item->authorId));
+  m_author->setText(m_service->personaName(item->author).value(item->author));
   m_itemState->setText(status.state == WorkshopItemState::NotSubscribed ? "Not subscribed" : stateText(status));
   m_preview->setImage(m_previewCache->get(item->id, item->previewUrl));
 
@@ -396,7 +522,8 @@ void WorkshopMenu::updateDetails() {
     m_subscribe->setText("Checking...");
   else
     m_subscribe->setText(status.state == WorkshopItemState::NotSubscribed ? "Subscribe" : "Unsubscribe");
-  m_openSteam->setEnabled(true);
+  m_openLink->setText("Steam");
+  m_openLink->setEnabled(true);
   m_retryDownload->setVisibility(status.state == WorkshopItemState::DownloadFailed);
 }
 
@@ -424,7 +551,7 @@ void WorkshopMenu::setStatus(String const& message, std::function<void()> retry)
   m_statusRetry->setVisibility((bool)m_retry);
 }
 
-WorkshopItem const* WorkshopMenu::selectedItem() const {
+WorkshopMenu::MenuItem const* WorkshopMenu::selectedItem() const {
   size_t index = m_list->selectedItem();
   if (index == NPos || index >= m_items.size())
     return nullptr;

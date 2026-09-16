@@ -42,7 +42,6 @@ SET (star_frontend_HEADERS
     StarMainInterfaceTypes.hpp
     StarMainMixer.hpp
     StarMerchantInterface.hpp
-    StarModsMenu.hpp
     StarNameplatePainter.hpp
     StarOptionsMenu.hpp
     StarPopupInterface.hpp
@@ -99,7 +98,6 @@ SET (star_frontend_SOURCES
     StarMainInterfaceTypes.cpp
     StarMainMixer.cpp
     StarMerchantInterface.cpp
-    StarModsMenu.cpp
     StarNameplatePainter.cpp
     StarOptionsMenu.cpp
     StarPopupInterface.cpp

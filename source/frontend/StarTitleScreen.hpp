@@ -14,7 +14,6 @@ STAR_CLASS(PlayerStorage);
 STAR_CLASS(CharCreationPane);
 STAR_CLASS(CharSelectionPane);
 STAR_CLASS(OptionsMenu);
-STAR_CLASS(ModsMenu);
 STAR_CLASS(WorkshopMenu);
 STAR_CLASS(GuiContext);
 STAR_CLASS(Pane);
@@ -29,7 +28,6 @@ STAR_CLASS(TitleScreen);
 enum class TitleState {
   Main,
   Options,
-  Mods,
   Workshop,
   SinglePlayerSelectCharacter,
   SinglePlayerCreateCharacter,
@@ -94,7 +92,6 @@ private:
   void initCharCreationMenu();
   void initMultiPlayerMenu();
   void initOptionsMenu(UniverseClientPtr client);
-  void initModsMenu();
   void initWorkshopMenu();
 
   void renderCursor();

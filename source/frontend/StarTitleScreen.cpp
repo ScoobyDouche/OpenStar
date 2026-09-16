@@ -15,7 +15,6 @@
 #include "StarCanvasWidget.hpp"
 #include "StarWidgetLuaBindings.hpp"
 #include "StarOptionsMenu.hpp"
-#include "StarModsMenu.hpp"
 #include "StarWorkshopMenu.hpp"
 #include "StarAssets.hpp"
 #include "StarCelestialDatabase.hpp"
@@ -49,7 +48,6 @@ TitleScreen::TitleScreen(PlayerStoragePtr playerStorage, MixerPtr mixer, Univers
   initCharCreationMenu();
   initMultiPlayerMenu();
   initOptionsMenu(client);
-  initModsMenu();
   initWorkshopMenu();
 
   resetState();
@@ -240,7 +238,6 @@ void TitleScreen::initMainMenu() {
   buttonCallbacks["options"] = [=](Widget*) { switchState(TitleState::Options); };
   buttonCallbacks["quit"] = [=](Widget*) { switchState(TitleState::Quit); };
   buttonCallbacks["back"] = [=](Widget*) { back(); };
-  buttonCallbacks["mods"] = [=](Widget*) { switchState(TitleState::Mods); };
   buttonCallbacks["workshop"] = [=](Widget*) { switchState(TitleState::Workshop); };
 
   // Without a user generated content service there is no Workshop to browse.
@@ -472,16 +469,6 @@ void TitleScreen::initOptionsMenu(UniverseClientPtr client) {
     });
 }
 
-void TitleScreen::initModsMenu() {
-  auto modsMenu = make_shared<ModsMenu>();
-  modsMenu->setAnchor(PaneAnchor::Center);
-  modsMenu->lockPosition();
-
-  m_paneManager.registerPane("modsMenu", PaneLayer::Hud, modsMenu, [this](PanePtr const&) {
-      back();
-    });
-}
-
 void TitleScreen::initWorkshopMenu() {
   auto service = m_guiContext->applicationController()->userGeneratedContentService();
   if (!service)
@@ -521,9 +508,7 @@ void TitleScreen::switchState(TitleState titleState) {
 
     if (titleState == TitleState::Options) {
       m_paneManager.displayRegisteredPane("optionsMenu");
-    } if (titleState == TitleState::Mods) {
-      m_paneManager.displayRegisteredPane("modsMenu");
-    } else if (titleState == TitleState::Workshop) {
+    } if (titleState == TitleState::Workshop) {
       if (m_workshopMenu)
         m_paneManager.displayRegisteredPane("workshopMenu");
     } else if (titleState == TitleState::SinglePlayerSelectCharacter) {
@@ -548,8 +533,6 @@ void TitleScreen::switchState(TitleState titleState) {
 
 void TitleScreen::back() {
   if (m_titleState == TitleState::Options)
-    switchState(TitleState::Main);
-  else if (m_titleState == TitleState::Mods)
     switchState(TitleState::Main);
   else if (m_titleState == TitleState::Workshop)
     switchState(TitleState::Main);
