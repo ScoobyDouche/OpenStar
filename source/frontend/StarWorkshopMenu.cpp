@@ -17,10 +17,11 @@ namespace Star {
 
 static uint32_t const WorkshopPageSize = 50;
 static size_t const WorkshopRowTitleLimit = 26;
+static size_t const WorkshopDetailTitleLimit = 32;
 
 WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr service, std::function<void()> requestApply)
   : m_manager(manager), m_service(std::move(service)), m_requestApply(std::move(requestApply)),
-    m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false) {
+    m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false), m_showMine(false) {
   auto assets = Root::singleton().assets();
 
   m_previewCache = make_shared<WorkshopPreviewCache>();
@@ -37,7 +38,7 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
     });
   reader.registerCallback("sortPopular", [this](Widget*) { setSort(WorkshopSort::Popular); });
   reader.registerCallback("sortRecent", [this](Widget*) { setSort(WorkshopSort::Recent); });
-  reader.registerCallback("sortSubscribed", [this](Widget*) { setSort(WorkshopSort::MostSubscribed); });
+  reader.registerCallback("sortMine", [this](Widget*) { showMine(); });
   reader.registerCallback("prevPage", [this](Widget*) {
       if (m_page > 1)
         requestPage(m_page - 1);
@@ -61,7 +62,7 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_statusRetry = fetchChild<ButtonWidget>("statusRetry");
   m_sortPopular = fetchChild<ButtonWidget>("sortPopular");
   m_sortRecent = fetchChild<ButtonWidget>("sortRecent");
-  m_sortSubscribed = fetchChild<ButtonWidget>("sortSubscribed");
+  m_sortMine = fetchChild<ButtonWidget>("sortMine");
   m_prevPage = fetchChild<ButtonWidget>("prevPage");
   m_nextPage = fetchChild<ButtonWidget>("nextPage");
   m_pageLabel = fetchChild<LabelWidget>("pageLabel");
@@ -78,8 +79,8 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_apply = fetchChild<ButtonWidget>("apply");
 
   m_preview = make_shared<WorkshopPreviewWidget>();
-  m_preview->setPosition(Vec2I(178, 126));
-  m_preview->setSize(Vec2I(82, 82));
+  m_preview->setPosition(Vec2I(180, 124));
+  m_preview->setSize(Vec2I(76, 76));
   addChild("preview", m_preview);
 
   m_prevPage->setEnabled(false);
@@ -104,6 +105,10 @@ void WorkshopMenu::update(float dt) {
 
 void WorkshopMenu::search() {
   m_searchText = m_searchBox->getText();
+  // Searching browses the Workshop rather than the player's own subscriptions.
+  if (!m_searchText.empty())
+    m_showMine = false;
+  updateModeButtons();
   requestPage(1);
 }
 
@@ -113,21 +118,57 @@ void WorkshopMenu::requestPage(uint32_t page) {
 
   m_hasQueried = true;
   m_page = page;
-  m_query = m_service->queryItems(m_searchText, m_sort, page);
 
   m_items.clear();
   m_list->clear();
   m_prevPage->setEnabled(false);
   m_nextPage->setEnabled(false);
+
+  if (m_showMine) {
+    // Re-read the subscriptions each time so unsubscribes drop out.
+    m_mineIds = m_service->subscribedContentIds();
+    m_pageCount = std::max<uint32_t>(1, (uint32_t)((m_mineIds.size() + WorkshopPageSize - 1) / WorkshopPageSize));
+    if (m_page > m_pageCount)
+      m_page = m_pageCount;
+
+    if (m_mineIds.empty()) {
+      m_query = {};
+      m_pageLabel->setText(strf("Page {} of {}", m_page, m_pageCount));
+      setStatus("You aren't subscribed to any mods");
+      return;
+    }
+
+    StringList pageIds;
+    size_t start = (size_t)(m_page - 1) * WorkshopPageSize;
+    for (size_t i = start; i < m_mineIds.size() && i < start + WorkshopPageSize; ++i)
+      pageIds.append(m_mineIds[i]);
+    m_query = m_service->queryItemDetails(pageIds);
+  } else {
+    m_query = m_service->queryItems(m_searchText, m_sort, m_page);
+  }
+
   setStatus("Loading...");
 }
 
 void WorkshopMenu::setSort(WorkshopSort sort) {
   m_sort = sort;
-  m_sortPopular->setChecked(sort == WorkshopSort::Popular);
-  m_sortRecent->setChecked(sort == WorkshopSort::Recent);
-  m_sortSubscribed->setChecked(sort == WorkshopSort::MostSubscribed);
+  m_showMine = false;
+  updateModeButtons();
   requestPage(1);
+}
+
+void WorkshopMenu::showMine() {
+  m_showMine = true;
+  m_searchText = "";
+  m_searchBox->setText("", false);
+  updateModeButtons();
+  requestPage(1);
+}
+
+void WorkshopMenu::updateModeButtons() {
+  m_sortPopular->setChecked(!m_showMine && m_sort == WorkshopSort::Popular);
+  m_sortRecent->setChecked(!m_showMine && m_sort == WorkshopSort::Recent);
+  m_sortMine->setChecked(m_showMine);
 }
 
 void WorkshopMenu::pollQuery() {
@@ -148,8 +189,13 @@ void WorkshopMenu::pollQuery() {
   }
 
   m_items = std::move(result->items);
-  m_pageCount = std::max<uint32_t>(1, (result->totalResults + WorkshopPageSize - 1) / WorkshopPageSize);
-  setStatus(m_items.empty() ? "No mods found" : "");
+  // In Mine the page count comes from the subscription list, not the query.
+  if (!m_showMine)
+    m_pageCount = std::max<uint32_t>(1, (result->totalResults + WorkshopPageSize - 1) / WorkshopPageSize);
+  if (m_items.empty())
+    setStatus(m_showMine ? "You aren't subscribed to any mods" : "No mods found");
+  else
+    setStatus("");
   populateList();
 }
 
@@ -157,7 +203,8 @@ void WorkshopMenu::populateList() {
   m_list->clear();
   for (auto const& item : m_items) {
     auto row = m_list->addItem();
-    String title = item.title;
+    // Removed items come back from Steam with no title.
+    String title = item.title.empty() ? item.id : item.title;
     if (title.size() > WorkshopRowTitleLimit)
       title = title.substr(0, WorkshopRowTitleLimit - 3) + "...";
     row->fetchChild<LabelWidget>("name")->setText(title);
@@ -329,7 +376,11 @@ void WorkshopMenu::updateDetails() {
 
   if (m_detailsItemId != item->id) {
     m_detailsItemId = item->id;
-    m_title->setText(item->title);
+    // Kept to one line so it never runs into the labels beside the preview.
+    String title = item->title.empty() ? item->id : item->title;
+    if (title.size() > WorkshopDetailTitleLimit)
+      title = title.substr(0, WorkshopDetailTitleLimit - 3) + "...";
+    m_title->setText(title);
     m_subscribers->setText(toString(item->subscriberCount));
     m_description->setText(item->description);
   }

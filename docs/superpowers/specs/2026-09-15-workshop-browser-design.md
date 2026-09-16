@@ -15,7 +15,8 @@ In scope:
 
 - Steam Workshop only, via the Steam UGC API (no third-party mirrors, no other
   mod sites, no SteamCMD).
-- Search by text, sort (Popular / Recent / Most Subscribed), paged results.
+- Search by text, browse by Popular or Recent, and a Mine tab listing the
+  player's own subscriptions. Results are paged 50 at a time.
 - Details panel: title, author, description, preview image, subscriber count,
   Subscribe / Unsubscribe, download progress, "Open in Steam" link.
 - Dependency auto-subscribe with a confirmation popup.
@@ -195,7 +196,10 @@ A `Pane` built with `GuiReader` from
 Widgets:
 
 - Search text box (Enter searches) and a Search button.
-- Sort buttons: Popular / Recent / Subscribed (checkable, one checked).
+- Mode buttons: Popular / Recent / Mine (checkable, one checked). Mine pages
+  through `subscribedContentIds()` resolved with `queryItemDetails()`, and
+  searching leaves it. The service still offers the MostSubscribed sort, which
+  the UI no longer uses because "Subscribed" read as "my subscriptions".
 - Result list: one row per item with a truncated title and a state badge
   (Subscribed / n% / Update / Failed).
 - Prev / Next buttons and a "Page n of m" label (50 items per page).

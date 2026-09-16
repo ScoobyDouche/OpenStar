@@ -32,6 +32,9 @@ private:
   void search();
   void requestPage(uint32_t page);
   void setSort(WorkshopSort sort);
+  // Lists the player's own subscriptions instead of browsing the Workshop.
+  void showMine();
+  void updateModeButtons();
   void pollQuery();
   void populateList();
 
@@ -67,6 +70,9 @@ private:
   uint32_t m_page;
   uint32_t m_pageCount;
   bool m_hasQueried;
+  bool m_showMine;
+  // Every subscribed id while showing Mine, paged through in blocks of 50.
+  StringList m_mineIds;
   Maybe<WorkshopRequestId> m_query;
   List<WorkshopItem> m_items;
 
@@ -83,7 +89,7 @@ private:
   ButtonWidgetPtr m_statusRetry;
   ButtonWidgetPtr m_sortPopular;
   ButtonWidgetPtr m_sortRecent;
-  ButtonWidgetPtr m_sortSubscribed;
+  ButtonWidgetPtr m_sortMine;
   ButtonWidgetPtr m_prevPage;
   ButtonWidgetPtr m_nextPage;
   LabelWidgetPtr m_pageLabel;
