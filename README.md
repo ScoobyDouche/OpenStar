@@ -1,6 +1,3 @@
-This is just a personal offshoot I wanted to do myself.
-No big plans, no team, no roadmap pressure — just something I felt like building and exploring on my own terms.
-
 # OpenStarbound
 
 <details>
