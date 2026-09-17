@@ -6,19 +6,21 @@ function patch(data)
   end
 
   -- The Mods menu is gone, the Workshop browser lists installed mods instead,
-  -- so the Workshop button takes over the Mods button's slot.
-  local modsOffset
+  -- so the Workshop button takes over the Mods button's corner.
   for i = #data.mainMenuButtons, 1, -1 do
     if data.mainMenuButtons[i].key == "mods" then
-      modsOffset = data.mainMenuButtons[i].offset
       table.remove(data.mainMenuButtons, i)
     end
   end
+  -- A right anchored offset is the button's left edge measured from the right
+  -- edge of the window, so it has to allow for the button's own width. The Mods
+  -- cog was 18px wide at -22; the Workshop button is 86px wide, so -90 leaves it
+  -- the same 4px gutter instead of hanging 64px off the screen.
   table.insert(data.mainMenuButtons, {
     key = "workshop",
     button = "/interface/modsmenu/workshopbutton.png",
     hover = "/interface/modsmenu/workshopbuttonhover.png",
-    offset = modsOffset or jarray{-22, 2},
+    offset = jarray{-90, 2},
     rightAnchored = true
   })
 
