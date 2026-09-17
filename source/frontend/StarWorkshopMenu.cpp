@@ -1,4 +1,5 @@
 #include "StarWorkshopMenu.hpp"
+#include "StarWorkshopPreview.hpp"
 #include "StarWorkshopDependencyDialog.hpp"
 #include "StarRoot.hpp"
 #include "StarAssets.hpp"
@@ -32,6 +33,7 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
     m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false), m_showSubscribed(false) {
   auto assets = Root::singleton().assets();
 
+  m_previewCache = make_shared<WorkshopPreviewCache>();
   m_dependencyDialog = make_shared<WorkshopDependencyDialog>();
 
   GuiReader reader;
@@ -88,6 +90,13 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_applyLabel = fetchChild<LabelWidget>("applyLabel");
   m_apply = fetchChild<ButtonWidget>("apply");
 
+  // Sits on the flat band the detail background gained between its label
+  // strips and the description well.
+  m_preview = make_shared<WorkshopPreviewWidget>();
+  m_preview->setPosition(Vec2I(220, 153));
+  m_preview->setSize(Vec2I(84, 84));
+  addChild("preview", m_preview);
+
   m_prevPage->setEnabled(false);
   m_nextPage->setEnabled(false);
 }
@@ -101,6 +110,7 @@ void WorkshopMenu::update(float dt) {
   pollQuery();
   pollResolver();
   pollActions();
+  m_previewCache->update();
 
   updateRows();
   updateDetails();
@@ -467,6 +477,7 @@ void WorkshopMenu::updateDetails() {
       m_itemState->setText("");
       m_source->setText("");
       m_description->setText("");
+      m_preview->setImage({});
     }
     m_subscribe->setEnabled(false);
     m_openLink->setEnabled(false);
@@ -500,6 +511,7 @@ void WorkshopMenu::updateDetails() {
     // The old Mods menu showed where each source was loaded from.
     m_sourceLabel->setText("PATH");
     m_source->setText(elideFront(item->path, WorkshopDetailValueLimit));
+    m_preview->setImage({});
     m_subscribe->setEnabled(false);
     m_subscribe->setText("Subscribe");
     m_retryDownload->setVisibility(false);
@@ -513,6 +525,7 @@ void WorkshopMenu::updateDetails() {
   m_itemState->setText(status.state == WorkshopItemState::NotSubscribed ? "Not subscribed" : stateText(status));
   m_sourceLabel->setText("WORKSHOP ID");
   m_source->setText(item->id);
+  m_preview->setImage(m_previewCache->get(item->id, item->previewUrl));
 
   bool checking = m_resolver && m_resolver->rootId() == item->id;
   m_subscribe->setEnabled(!m_resolver);

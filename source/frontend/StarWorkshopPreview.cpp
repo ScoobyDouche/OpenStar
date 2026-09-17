@@ -24,8 +24,10 @@ ImageConstPtr WorkshopPreviewCache::get(String const& itemId, String const& url)
       request.method = "GET";
       request.url = url;
       entry.fetch = HttpClient::requestAsync(request);
+    } else if (url.empty()) {
+      Logger::info("Workshop preview for {} has no url; Steam returned none for this item", itemId);
     } else {
-      Logger::debug("Not fetching Workshop preview for {} from disallowed url '{}'", itemId, url);
+      Logger::info("Not fetching Workshop preview for {} from disallowed url '{}'", itemId, url);
     }
     m_entries[itemId] = std::move(entry);
   }
@@ -44,14 +46,15 @@ void WorkshopPreviewCache::update() {
     try {
       auto const& response = entry.fetch->get();
       if (!response.error.empty() || response.statusCode != 200) {
-        Logger::debug("Workshop preview fetch for {} failed: {} {}", pair.first, response.statusCode, response.error);
+        Logger::info("Workshop preview fetch for {} failed: {} {}", pair.first, response.statusCode, response.error);
       } else if (auto image = decodeImage(ByteArray(response.body.utf8Ptr(), response.body.utf8Size()))) {
         entry.image = make_shared<Image>(fitImage(*image, MaxImageSide));
+        Logger::info("Workshop preview for {} ready ({}x{})", pair.first, entry.image->size()[0], entry.image->size()[1]);
       } else {
-        Logger::debug("Could not decode Workshop preview for {}", pair.first);
+        Logger::info("Could not decode Workshop preview for {} ({} bytes)", pair.first, response.body.utf8Size());
       }
     } catch (std::exception const& e) {
-      Logger::debug("Workshop preview fetch for {} threw: {}", pair.first, outputException(e, false));
+      Logger::info("Workshop preview fetch for {} threw: {}", pair.first, outputException(e, false));
     }
 
     entry.fetch = {};

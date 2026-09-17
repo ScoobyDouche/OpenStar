@@ -11,6 +11,8 @@ STAR_CLASS(ListWidget);
 STAR_CLASS(LabelWidget);
 STAR_CLASS(ButtonWidget);
 STAR_CLASS(TextBoxWidget);
+STAR_CLASS(WorkshopPreviewCache);
+STAR_CLASS(WorkshopPreviewWidget);
 STAR_CLASS(WorkshopDependencyDialog);
 STAR_CLASS(WorkshopMenu);
 
@@ -86,6 +88,7 @@ private:
   std::function<void()> m_requestApply;
 
   WorkshopApplyState m_applyState;
+  WorkshopPreviewCachePtr m_previewCache;
   WorkshopDependencyDialogPtr m_dependencyDialog;
 
   String m_searchText;
@@ -123,6 +126,7 @@ private:
   ButtonWidgetPtr m_nextPage;
   LabelWidgetPtr m_pageLabel;
 
+  WorkshopPreviewWidgetPtr m_preview;
   LabelWidgetPtr m_title;
   LabelWidgetPtr m_author;
   LabelWidgetPtr m_subscribersLabel;
