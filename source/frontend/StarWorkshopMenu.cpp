@@ -1,5 +1,4 @@
 #include "StarWorkshopMenu.hpp"
-#include "StarWorkshopPreview.hpp"
 #include "StarWorkshopDependencyDialog.hpp"
 #include "StarRoot.hpp"
 #include "StarAssets.hpp"
@@ -19,6 +18,8 @@ namespace Star {
 static uint32_t const WorkshopPageSize = 50;
 static size_t const WorkshopRowTitleLimit = 26;
 static size_t const WorkshopDetailTitleLimit = 32;
+// A detail row's value shares its strip with the label beside it.
+static size_t const WorkshopDetailValueLimit = 30;
 
 static bool pathStartsWith(String const& path, String const& prefix) {
   std::string const& full = path.utf8();
@@ -31,7 +32,6 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
     m_sort(WorkshopSort::Popular), m_page(1), m_pageCount(1), m_hasQueried(false), m_showSubscribed(false) {
   auto assets = Root::singleton().assets();
 
-  m_previewCache = make_shared<WorkshopPreviewCache>();
   m_dependencyDialog = make_shared<WorkshopDependencyDialog>();
 
   GuiReader reader;
@@ -79,17 +79,14 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_subscribersLabel = fetchChild<LabelWidget>("subscribersLabel");
   m_subscribers = fetchChild<LabelWidget>("subscribers");
   m_itemState = fetchChild<LabelWidget>("itemState");
+  m_sourceLabel = fetchChild<LabelWidget>("sourceLabel");
+  m_source = fetchChild<LabelWidget>("source");
   m_description = fetchChild<LabelWidget>("descriptionArea.description");
   m_subscribe = fetchChild<ButtonWidget>("subscribe");
   m_retryDownload = fetchChild<ButtonWidget>("retryDownload");
   m_openLink = fetchChild<ButtonWidget>("openSteam");
   m_applyLabel = fetchChild<LabelWidget>("applyLabel");
   m_apply = fetchChild<ButtonWidget>("apply");
-
-  m_preview = make_shared<WorkshopPreviewWidget>();
-  m_preview->setPosition(Vec2I(180, 124));
-  m_preview->setSize(Vec2I(76, 76));
-  addChild("preview", m_preview);
 
   m_prevPage->setEnabled(false);
   m_nextPage->setEnabled(false);
@@ -104,7 +101,6 @@ void WorkshopMenu::update(float dt) {
   pollQuery();
   pollResolver();
   pollActions();
-  m_previewCache->update();
 
   updateRows();
   updateDetails();
@@ -469,8 +465,8 @@ void WorkshopMenu::updateDetails() {
       m_author->setText("");
       m_subscribers->setText("");
       m_itemState->setText("");
+      m_source->setText("");
       m_description->setText("");
-      m_preview->setImage({});
     }
     m_subscribe->setEnabled(false);
     m_openLink->setEnabled(false);
@@ -482,7 +478,7 @@ void WorkshopMenu::updateDetails() {
   if (m_detailsItemId != itemKey) {
     m_detailsItemId = itemKey;
 
-    // Kept to one line so it never runs into the labels beside the preview.
+    // The title band is one line across the whole detail panel.
     String title = item->name;
     if (title.size() > WorkshopDetailTitleLimit)
       title = title.substr(0, WorkshopDetailTitleLimit - 3) + "...";
@@ -491,8 +487,7 @@ void WorkshopMenu::updateDetails() {
     m_subscribersLabel->setText(item->local ? "VERSION" : "SUBSCRIBERS");
     if (item->local) {
       m_subscribers->setText(item->version.empty() ? "-" : item->version);
-      // The old Mods menu showed where each source was loaded from.
-      m_description->setText(strf("^#b9b5b2;{}^reset;\n\n{}", item->path, item->description));
+      m_description->setText(item->description);
     } else {
       m_subscribers->setText(toString(item->subscriberCount));
       m_description->setText(item->description);
@@ -502,7 +497,9 @@ void WorkshopMenu::updateDetails() {
   if (item->local) {
     m_author->setText(item->author.empty() ? "-" : item->author);
     m_itemState->setText("Installed");
-    m_preview->setImage({});
+    // The old Mods menu showed where each source was loaded from.
+    m_sourceLabel->setText("PATH");
+    m_source->setText(elideFront(item->path, WorkshopDetailValueLimit));
     m_subscribe->setEnabled(false);
     m_subscribe->setText("Subscribe");
     m_retryDownload->setVisibility(false);
@@ -514,7 +511,8 @@ void WorkshopMenu::updateDetails() {
   auto status = m_service->itemStatus(item->id);
   m_author->setText(m_service->personaName(item->author).value(item->author));
   m_itemState->setText(status.state == WorkshopItemState::NotSubscribed ? "Not subscribed" : stateText(status));
-  m_preview->setImage(m_previewCache->get(item->id, item->previewUrl));
+  m_sourceLabel->setText("WORKSHOP ID");
+  m_source->setText(item->id);
 
   bool checking = m_resolver && m_resolver->rootId() == item->id;
   m_subscribe->setEnabled(!m_resolver);
@@ -572,6 +570,12 @@ String WorkshopMenu::stateText(WorkshopItemStatus const& status) {
       return "^red;Failed";
   }
   return "";
+}
+
+String WorkshopMenu::elideFront(String const& text, size_t limit) {
+  if (text.size() <= limit)
+    return text;
+  return "..." + text.substr(text.size() - (limit - 3));
 }
 
 }

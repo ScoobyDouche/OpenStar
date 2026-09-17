@@ -11,8 +11,6 @@ STAR_CLASS(ListWidget);
 STAR_CLASS(LabelWidget);
 STAR_CLASS(ButtonWidget);
 STAR_CLASS(TextBoxWidget);
-STAR_CLASS(WorkshopPreviewCache);
-STAR_CLASS(WorkshopPreviewWidget);
 STAR_CLASS(WorkshopDependencyDialog);
 STAR_CLASS(WorkshopMenu);
 
@@ -80,13 +78,14 @@ private:
   void setStatus(String const& message, std::function<void()> retry = {});
   MenuItem const* selectedItem() const;
   static String stateText(WorkshopItemStatus const& status);
+  // Detail rows are one line wide, so long values keep their tail.
+  static String elideFront(String const& text, size_t limit);
 
   PaneManager* m_manager;
   UserGeneratedContentServicePtr m_service;
   std::function<void()> m_requestApply;
 
   WorkshopApplyState m_applyState;
-  WorkshopPreviewCachePtr m_previewCache;
   WorkshopDependencyDialogPtr m_dependencyDialog;
 
   String m_searchText;
@@ -124,12 +123,13 @@ private:
   ButtonWidgetPtr m_nextPage;
   LabelWidgetPtr m_pageLabel;
 
-  WorkshopPreviewWidgetPtr m_preview;
   LabelWidgetPtr m_title;
   LabelWidgetPtr m_author;
   LabelWidgetPtr m_subscribersLabel;
   LabelWidgetPtr m_subscribers;
   LabelWidgetPtr m_itemState;
+  LabelWidgetPtr m_sourceLabel;
+  LabelWidgetPtr m_source;
   LabelWidgetPtr m_description;
   ButtonWidgetPtr m_subscribe;
   ButtonWidgetPtr m_retryDownload;
