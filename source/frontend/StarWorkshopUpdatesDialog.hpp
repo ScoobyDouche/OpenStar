@@ -7,8 +7,8 @@ namespace Star {
 STAR_CLASS(ListWidget);
 STAR_CLASS(WorkshopUpdatesDialog);
 
-// Lists subscribed Workshop items that updated since the last launch, each
-// with a button that opens its Steam changelog.
+// Lists subscribed Workshop items that updated since the last launch.
+// Clicking a row opens that item's Steam changelog.
 class WorkshopUpdatesDialog final : public Pane {
 public:
   WorkshopUpdatesDialog();
@@ -17,10 +17,11 @@ public:
   void setUpdates(List<pair<String, String>> const& updates);
 
 private:
-  void openChangelog(String const& id);
+  void openSelectedChangelog();
 
   String m_changelogUrl;
   ListWidgetPtr m_list;
+  StringList m_ids;
 };
 
 }

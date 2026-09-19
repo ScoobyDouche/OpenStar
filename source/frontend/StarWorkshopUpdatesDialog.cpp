@@ -4,7 +4,6 @@
 #include "StarRoot.hpp"
 #include "StarAssets.hpp"
 #include "StarLabelWidget.hpp"
-#include "StarButtonWidget.hpp"
 #include "StarListWidget.hpp"
 
 namespace Star {
@@ -17,6 +16,7 @@ WorkshopUpdatesDialog::WorkshopUpdatesDialog() {
 
   GuiReader reader;
   reader.registerCallback("close", [this](Widget*) { dismiss(); });
+  reader.registerCallback("openChangelog", [this](Widget*) { openSelectedChangelog(); });
   reader.construct(assets->json("/interface/workshopmenu/updates.config:paneLayout"), this);
 
   m_list = fetchChild<ListWidget>("modsArea.list");
@@ -25,6 +25,7 @@ WorkshopUpdatesDialog::WorkshopUpdatesDialog() {
 
 void WorkshopUpdatesDialog::setUpdates(List<pair<String, String>> const& updates) {
   m_list->clear();
+  m_ids.clear();
   for (auto const& update : updates) {
     auto row = m_list->addItem();
 
@@ -32,14 +33,19 @@ void WorkshopUpdatesDialog::setUpdates(List<pair<String, String>> const& updates
     if (title.size() > UpdateRowTitleLimit)
       title = title.substr(0, UpdateRowTitleLimit - 3) + "...";
     row->fetchChild<LabelWidget>("name")->setText(title);
-
-    String id = update.first;
-    row->fetchChild<ButtonWidget>("changelog")->setCallback([this, id](Widget*) { openChangelog(id); });
+    m_ids.append(update.first);
   }
 }
 
-void WorkshopUpdatesDialog::openChangelog(String const& id) {
-  String url = m_changelogUrl.replace("{}", id);
+void WorkshopUpdatesDialog::openSelectedChangelog() {
+  size_t index = m_list->selectedItem();
+  if (index >= m_ids.size())
+    return;
+  // Deselect so clicking the same row again opens it again.  This re-enters
+  // with no selection, which the check above ignores.
+  m_list->clearSelected();
+
+  String url = m_changelogUrl.replace("{}", m_ids[index]);
 
   auto& guiContext = GuiContext::singleton();
   if (auto desktopService = guiContext.applicationController()->desktopService())
