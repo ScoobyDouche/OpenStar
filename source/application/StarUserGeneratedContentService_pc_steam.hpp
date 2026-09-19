@@ -12,6 +12,7 @@ public:
 
   StringList subscribedContentIds() const override;
   Maybe<String> contentDownloadDirectory(String const& contentId) const override;
+  Maybe<uint64_t> installedUpdateTime(String const& contentId) const override;
   UserGeneratedContentService::UGCState triggerContentDownload() override;
 
   WorkshopRequestId queryItems(String const& searchText, WorkshopSort sort, uint32_t page) override;

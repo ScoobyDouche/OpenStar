@@ -62,6 +62,7 @@ SET (star_frontend_HEADERS
     StarVoiceSettingsMenu.hpp
     StarWireInterface.hpp
     StarWorkshopDependencyDialog.hpp
+    StarWorkshopUpdatesDialog.hpp
     StarWorkshopMenu.hpp
     StarWorkshopPreview.hpp
   )
@@ -118,6 +119,7 @@ SET (star_frontend_SOURCES
     StarVoiceSettingsMenu.cpp
     StarWireInterface.cpp
     StarWorkshopDependencyDialog.cpp
+    StarWorkshopUpdatesDialog.cpp
     StarWorkshopMenu.cpp
     StarWorkshopPreview.cpp
   )

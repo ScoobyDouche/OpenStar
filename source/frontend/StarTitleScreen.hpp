@@ -93,6 +93,9 @@ private:
   void initMultiPlayerMenu();
   void initOptionsMenu(UniverseClientPtr client);
   void initWorkshopMenu();
+  // Records the installed time of every subscribed Workshop item and queues a
+  // dialog listing the ones that updated since the last recorded check.
+  void checkWorkshopUpdates();
 
   void renderCursor();
 
@@ -126,6 +129,7 @@ private:
   PanePtr m_mainMenu;
   PanePtr m_backgroundMenu;
   WorkshopMenuPtr m_workshopMenu;
+  bool m_showWorkshopUpdates = false;
   bool m_modReloadRequested = false;
   List<pair<ButtonWidgetPtr, Vec2I>> m_rightAnchoredButtons;
 

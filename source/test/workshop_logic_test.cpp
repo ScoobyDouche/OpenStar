@@ -227,3 +227,40 @@ TEST(WorkshopDescriptionTest, PassesPlainTextThrough) {
   EXPECT_EQ(described(""), "");
   EXPECT_EQ(described("Just a mod."), "Just a mod.");
 }
+
+TEST(WorkshopUpdatesTest, ReportsOnlyItemsNewerThanSeen) {
+  JsonObject seen{{"A", 100}, {"B", 200}, {"C", 300}};
+  List<pair<String, uint64_t>> current{{"A", 100}, {"B", 250}, {"C", 299}};
+  EXPECT_EQ(ids(workshopUpdatedIds(seen, current)), std::vector<std::string>({"B"}));
+}
+
+TEST(WorkshopUpdatesTest, IgnoresNewSubscriptions) {
+  JsonObject seen{{"A", 100}};
+  List<pair<String, uint64_t>> current{{"A", 100}, {"New", 999}};
+  EXPECT_TRUE(workshopUpdatedIds(seen, current).empty());
+}
+
+TEST(WorkshopUpdatesTest, NothingSeenYetReportsNothing) {
+  List<pair<String, uint64_t>> current{{"A", 100}, {"B", 200}};
+  EXPECT_TRUE(workshopUpdatedIds(JsonObject(), current).empty());
+}
+
+TEST(WorkshopUpdatesTest, KeepsSubscriptionOrder) {
+  JsonObject seen{{"A", 1}, {"B", 1}, {"C", 1}};
+  List<pair<String, uint64_t>> current{{"C", 2}, {"A", 2}, {"B", 1}};
+  EXPECT_EQ(ids(workshopUpdatedIds(seen, current)), std::vector<std::string>({"C", "A"}));
+}
+
+TEST(WorkshopUpdatesTest, IgnoresMalformedSeenEntries) {
+  JsonObject seen{{"A", "yesterday"}, {"B", Json()}};
+  List<pair<String, uint64_t>> current{{"A", 5}, {"B", 5}};
+  EXPECT_TRUE(workshopUpdatedIds(seen, current).empty());
+}
+
+TEST(WorkshopUpdatesTest, SeenRecordDropsUnsubscribedItems) {
+  List<pair<String, uint64_t>> current{{"A", 7}, {"B", 9}};
+  JsonObject record = workshopSeenUpdateRecord(current);
+  EXPECT_EQ(record.size(), 2u);
+  EXPECT_EQ(record.get("A").toUInt(), 7u);
+  EXPECT_EQ(record.get("B").toUInt(), 9u);
+}

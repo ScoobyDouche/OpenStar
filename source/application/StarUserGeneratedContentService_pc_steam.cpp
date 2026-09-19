@@ -31,6 +31,17 @@ Maybe<String> SteamUserGeneratedContentService::contentDownloadDirectory(String 
   return {};
 }
 
+Maybe<uint64_t> SteamUserGeneratedContentService::installedUpdateTime(String const& contentId) const {
+  PublishedFileId_t id = lexicalCast<PublishedFileId_t>(contentId);
+  if (!(SteamUGC()->GetItemState(id) & k_EItemStateInstalled))
+    return {};
+  char path[4096];
+  uint32 timeStamp = 0;
+  if (!SteamUGC()->GetItemInstallInfo(id, nullptr, path, sizeof(path), &timeStamp) || timeStamp == 0)
+    return {};
+  return (uint64_t)timeStamp;
+}
+
 UserGeneratedContentService::UGCState SteamUserGeneratedContentService::triggerContentDownload() {
   List<PublishedFileId_t> contentIds(SteamUGC()->GetNumSubscribedItems(), {});
   SteamUGC()->GetSubscribedItems(contentIds.ptr(), contentIds.size());

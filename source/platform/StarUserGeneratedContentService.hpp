@@ -70,6 +70,9 @@ public:
   // If the content has been downloaded successfully, returns the path to the
   // downloaded content directory on the filesystem, otherwise nothing.
   virtual Maybe<String> contentDownloadDirectory(String const& contentId) const = 0;
+  // When the installed copy of the content was last updated on the Workshop,
+  // in seconds since the epoch, or nothing if it is not installed.
+  virtual Maybe<uint64_t> installedUpdateTime(String const& contentId) const = 0;
 
   // Start downloading subscribed content in the background, returns true when
   // all content is synchronized.

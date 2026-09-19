@@ -22,6 +22,10 @@ public:
 
   void update(float dt) override;
 
+  // The name of an installed Workshop item, read from its asset source's
+  // metadata, or nothing if it is not installed and loaded.
+  static Maybe<String> installedTitle(UserGeneratedContentService const& service, String const& id);
+
 private:
   // A row in the list: either a Workshop item or a loaded asset source that
   // did not come from the Workshop.

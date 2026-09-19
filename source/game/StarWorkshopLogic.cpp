@@ -269,4 +269,23 @@ String workshopDescriptionText(String const& bbcode) {
   return tidy;
 }
 
+StringList workshopUpdatedIds(JsonObject const& seen, List<pair<String, uint64_t>> const& current) {
+  StringList updated;
+  for (auto const& item : current) {
+    auto seenTime = seen.ptr(item.first);
+    if (!seenTime || !seenTime->canConvert(Json::Type::Int))
+      continue;
+    if (item.second > seenTime->toUInt())
+      updated.append(item.first);
+  }
+  return updated;
+}
+
+JsonObject workshopSeenUpdateRecord(List<pair<String, uint64_t>> const& current) {
+  JsonObject record;
+  for (auto const& item : current)
+    record[item.first] = item.second;
+  return record;
+}
+
 }

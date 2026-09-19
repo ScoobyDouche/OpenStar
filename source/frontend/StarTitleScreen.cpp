@@ -16,6 +16,8 @@
 #include "StarWidgetLuaBindings.hpp"
 #include "StarOptionsMenu.hpp"
 #include "StarWorkshopMenu.hpp"
+#include "StarWorkshopUpdatesDialog.hpp"
+#include "StarWorkshopLogic.hpp"
 #include "StarAssets.hpp"
 #include "StarCelestialDatabase.hpp"
 #include "StarEnvironmentPainter.hpp"
@@ -49,6 +51,7 @@ TitleScreen::TitleScreen(PlayerStoragePtr playerStorage, MixerPtr mixer, Univers
   initMultiPlayerMenu();
   initOptionsMenu(client);
   initWorkshopMenu();
+  checkWorkshopUpdates();
 
   resetState();
 }
@@ -483,6 +486,37 @@ void TitleScreen::initWorkshopMenu() {
     });
 }
 
+void TitleScreen::checkWorkshopUpdates() {
+  auto service = m_guiContext->applicationController()->userGeneratedContentService();
+  if (!service)
+    return;
+
+  List<pair<String, uint64_t>> current;
+  for (auto const& id : service->subscribedContentIds()) {
+    if (auto time = service->installedUpdateTime(id))
+      current.append({id, *time});
+  }
+
+  auto configuration = Root::singleton().configuration();
+  Json seen = configuration->get("workshopSeenUpdateTimes");
+  StringList updatedIds = workshopUpdatedIds(seen.isType(Json::Type::Object) ? seen.toObject() : JsonObject(), current);
+  // Announce each update once, whether or not the player reads the list.
+  configuration->set("workshopSeenUpdateTimes", workshopSeenUpdateRecord(current));
+
+  if (updatedIds.empty())
+    return;
+
+  List<pair<String, String>> updates;
+  for (auto const& id : updatedIds)
+    updates.append({id, WorkshopMenu::installedTitle(*service, id).value(id)});
+  Logger::info("{} Workshop item(s) updated since the last launch", updates.size());
+
+  auto dialog = make_shared<WorkshopUpdatesDialog>();
+  dialog->setUpdates(updates);
+  m_paneManager.registerPane("workshopUpdates", PaneLayer::Hud, dialog);
+  m_showWorkshopUpdates = true;
+}
+
 bool TitleScreen::takeModReloadRequest() {
   bool requested = m_modReloadRequested;
   m_modReloadRequested = false;
@@ -503,6 +537,10 @@ void TitleScreen::switchState(TitleState titleState) {
 
   if (titleState == TitleState::Main) {
     m_paneManager.displayRegisteredPane("mainMenu");
+    if (m_showWorkshopUpdates) {
+      m_showWorkshopUpdates = false;
+      m_paneManager.displayRegisteredPane("workshopUpdates");
+    }
   } else {
     m_paneManager.displayRegisteredPane("backMenu");
 

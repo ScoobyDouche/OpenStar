@@ -101,6 +101,19 @@ WorkshopMenu::WorkshopMenu(PaneManager* manager, UserGeneratedContentServicePtr 
   m_nextPage->setEnabled(false);
 }
 
+Maybe<String> WorkshopMenu::installedTitle(UserGeneratedContentService const& service, String const& id) {
+  auto directory = service.contentDownloadDirectory(id);
+  if (!directory)
+    return {};
+
+  auto assets = Root::singleton().assets();
+  for (auto const& source : assets->assetSources()) {
+    if (pathStartsWith(source, *directory))
+      return bestModName(assets->assetSourceMetadata(source), source);
+  }
+  return {};
+}
+
 void WorkshopMenu::update(float dt) {
   Pane::update(dt);
 

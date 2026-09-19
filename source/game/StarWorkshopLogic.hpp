@@ -1,6 +1,7 @@
 #pragma once
 
 #include "StarString.hpp"
+#include "StarJson.hpp"
 #include "StarUserGeneratedContentService.hpp"
 
 namespace Star {
@@ -13,6 +14,13 @@ bool isAllowedWorkshopPreviewUrl(String const& url);
 // bullets, images and videos are dropped, and other known tags are removed
 // with their text kept.  Brackets that are not BBCode tags are left alone.
 String workshopDescriptionText(String const& bbcode);
+
+// Subscribed items, in subscription order, whose update time is newer than the
+// one recorded in seen (id -> time).  Items with no valid recorded time were
+// subscribed since the last check and are not reported.
+StringList workshopUpdatedIds(JsonObject const& seen, List<pair<String, uint64_t>> const& current);
+// The record to store for the next check: every current item's update time.
+JsonObject workshopSeenUpdateRecord(List<pair<String, uint64_t>> const& current);
 
 // Walks Workshop dependencies breadth-first without doing any I/O.  The caller
 // fetches the details for each nextBatch() and passes them to supplyBatch().
