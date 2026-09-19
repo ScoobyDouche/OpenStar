@@ -42,7 +42,6 @@ SET (star_frontend_HEADERS
     StarMainInterfaceTypes.hpp
     StarMainMixer.hpp
     StarMerchantInterface.hpp
-    StarModsMenu.hpp
     StarNameplatePainter.hpp
     StarOptionsMenu.hpp
     StarPopupInterface.hpp
@@ -62,6 +61,9 @@ SET (star_frontend_HEADERS
     StarVoiceLuaBindings.hpp
     StarVoiceSettingsMenu.hpp
     StarWireInterface.hpp
+    StarWorkshopDependencyDialog.hpp
+    StarWorkshopMenu.hpp
+    StarWorkshopPreview.hpp
   )
 
 SET (star_frontend_SOURCES
@@ -96,7 +98,6 @@ SET (star_frontend_SOURCES
     StarMainInterfaceTypes.cpp
     StarMainMixer.cpp
     StarMerchantInterface.cpp
-    StarModsMenu.cpp
     StarNameplatePainter.cpp
     StarOptionsMenu.cpp
     StarPopupInterface.cpp
@@ -116,6 +117,9 @@ SET (star_frontend_SOURCES
     StarVoiceLuaBindings.cpp
     StarVoiceSettingsMenu.cpp
     StarWireInterface.cpp
+    StarWorkshopDependencyDialog.cpp
+    StarWorkshopMenu.cpp
+    StarWorkshopPreview.cpp
   )
 
 ADD_LIBRARY (star_frontend OBJECT ${star_frontend_SOURCES} ${star_frontend_HEADERS})

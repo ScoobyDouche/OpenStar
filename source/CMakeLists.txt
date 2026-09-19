@@ -496,6 +496,7 @@ find_package(cpr CONFIG REQUIRED)
 find_package(OggVorbis REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_path(STB_INCLUDE_DIRS "stb_image.h" REQUIRED)
 if (NOT STAR_SYSTEM_HAIKU)
 	find_package(Opus CONFIG REQUIRED)
 	find_package(re2 CONFIG REQUIRED)
@@ -503,6 +504,7 @@ endif()
 include_directories(SYSTEM
     ${FREETYPE_INCLUDE_DIRS}
     ${OGGVORBIS_INCLUDE_DIR}
+    ${STB_INCLUDE_DIRS}
 )
 
 set(STAR_EXT_LIBS ${STAR_EXT_LIBS}

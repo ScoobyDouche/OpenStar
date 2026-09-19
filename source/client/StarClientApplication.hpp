@@ -153,6 +153,10 @@ private:
   ByteArray m_immediateFont;
 
   bool m_loggedUGCCheck;
+
+  // Set when the Workshop menu applies changes, so updateMods reloads even if
+  // no Workshop directories remain.
+  bool m_forceModReload = false;
 };
 
 }

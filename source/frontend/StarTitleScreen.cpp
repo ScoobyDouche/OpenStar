@@ -15,7 +15,7 @@
 #include "StarCanvasWidget.hpp"
 #include "StarWidgetLuaBindings.hpp"
 #include "StarOptionsMenu.hpp"
-#include "StarModsMenu.hpp"
+#include "StarWorkshopMenu.hpp"
 #include "StarAssets.hpp"
 #include "StarCelestialDatabase.hpp"
 #include "StarEnvironmentPainter.hpp"
@@ -48,7 +48,7 @@ TitleScreen::TitleScreen(PlayerStoragePtr playerStorage, MixerPtr mixer, Univers
   initCharCreationMenu();
   initMultiPlayerMenu();
   initOptionsMenu(client);
-  initModsMenu();
+  initWorkshopMenu();
 
   resetState();
 }
@@ -238,10 +238,15 @@ void TitleScreen::initMainMenu() {
   buttonCallbacks["options"] = [=](Widget*) { switchState(TitleState::Options); };
   buttonCallbacks["quit"] = [=](Widget*) { switchState(TitleState::Quit); };
   buttonCallbacks["back"] = [=](Widget*) { back(); };
-  buttonCallbacks["mods"] = [=](Widget*) { switchState(TitleState::Mods); };
+  buttonCallbacks["workshop"] = [=](Widget*) { switchState(TitleState::Workshop); };
+
+  // Without a user generated content service there is no Workshop to browse.
+  bool hasWorkshop = (bool)m_guiContext->applicationController()->userGeneratedContentService();
 
   for (auto buttonConfig : config.getArray("mainMenuButtons")) {
     String key = buttonConfig.getString("key");
+    if (key == "workshop" && !hasWorkshop)
+      continue;
     String image = buttonConfig.getString("button");
     String imageHover = buttonConfig.getString("hover");
     Vec2I offset = jsonToVec2I(buttonConfig.get("offset"));
@@ -464,14 +469,24 @@ void TitleScreen::initOptionsMenu(UniverseClientPtr client) {
     });
 }
 
-void TitleScreen::initModsMenu() {
-  auto modsMenu = make_shared<ModsMenu>();
-  modsMenu->setAnchor(PaneAnchor::Center);
-  modsMenu->lockPosition();
+void TitleScreen::initWorkshopMenu() {
+  auto service = m_guiContext->applicationController()->userGeneratedContentService();
+  if (!service)
+    return;
 
-  m_paneManager.registerPane("modsMenu", PaneLayer::Hud, modsMenu, [this](PanePtr const&) {
+  m_workshopMenu = make_shared<WorkshopMenu>(&m_paneManager, service, [this]() { m_modReloadRequested = true; });
+  m_workshopMenu->setAnchor(PaneAnchor::Center);
+  m_workshopMenu->lockPosition();
+
+  m_paneManager.registerPane("workshopMenu", PaneLayer::Hud, m_workshopMenu, [this](PanePtr const&) {
       back();
     });
+}
+
+bool TitleScreen::takeModReloadRequest() {
+  bool requested = m_modReloadRequested;
+  m_modReloadRequested = false;
+  return requested;
 }
 
 void TitleScreen::switchState(TitleState titleState) {
@@ -493,8 +508,9 @@ void TitleScreen::switchState(TitleState titleState) {
 
     if (titleState == TitleState::Options) {
       m_paneManager.displayRegisteredPane("optionsMenu");
-    } if (titleState == TitleState::Mods) {
-      m_paneManager.displayRegisteredPane("modsMenu");
+    } if (titleState == TitleState::Workshop) {
+      if (m_workshopMenu)
+        m_paneManager.displayRegisteredPane("workshopMenu");
     } else if (titleState == TitleState::SinglePlayerSelectCharacter) {
       m_paneManager.displayRegisteredPane("charSelectionMenu");
     } else if (titleState == TitleState::SinglePlayerCreateCharacter) {
@@ -518,7 +534,7 @@ void TitleScreen::switchState(TitleState titleState) {
 void TitleScreen::back() {
   if (m_titleState == TitleState::Options)
     switchState(TitleState::Main);
-  else if (m_titleState == TitleState::Mods)
+  else if (m_titleState == TitleState::Workshop)
     switchState(TitleState::Main);
   else if (m_titleState == TitleState::SinglePlayerSelectCharacter)
     switchState(TitleState::Main);

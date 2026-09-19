@@ -27,6 +27,7 @@ SET (star_core_tests_SOURCES
       file_test.cpp
       hash_test.cpp
       host_address_test.cpp
+      image_decode_test.cpp
       ref_ptr_test.cpp
       json_test.cpp
       flat_hash_test.cpp
@@ -85,6 +86,23 @@ ADD_EXECUTABLE (game_tests
   ${star_game_tests_SOURCES})
 TARGET_LINK_LIBRARIES (game_tests ${STAR_EXT_LIBS})
 ADD_TEST (NAME game_tests WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/game_tests)
+
+SET (star_workshop_tests_SOURCES
+      gtest/gtest-all.cc
+
+      core_tests_main.cpp
+
+      workshop_logic_test.cpp
+      ${PROJECT_SOURCE_DIR}/game/StarWorkshopLogic.cpp
+    )
+ADD_EXECUTABLE (workshop_tests
+  $<TARGET_OBJECTS:star_extern> $<TARGET_OBJECTS:star_core>
+  ${star_workshop_tests_SOURCES})
+TARGET_LINK_LIBRARIES (workshop_tests ${STAR_EXT_LIBS})
+ADD_TEST (NAME workshop_tests WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/workshop_tests)
+
+SET_TESTS_PROPERTIES(workshop_tests PROPERTIES
+                     LABELS "NoAssets")
 
 SET_TESTS_PROPERTIES(core_tests PROPERTIES
                      LABELS "NoAssets")

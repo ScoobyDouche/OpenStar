@@ -14,7 +14,7 @@ STAR_CLASS(PlayerStorage);
 STAR_CLASS(CharCreationPane);
 STAR_CLASS(CharSelectionPane);
 STAR_CLASS(OptionsMenu);
-STAR_CLASS(ModsMenu);
+STAR_CLASS(WorkshopMenu);
 STAR_CLASS(GuiContext);
 STAR_CLASS(Pane);
 STAR_CLASS(PaneManager);
@@ -28,7 +28,7 @@ STAR_CLASS(TitleScreen);
 enum class TitleState {
   Main,
   Options,
-  Mods,
+  Workshop,
   SinglePlayerSelectCharacter,
   SinglePlayerCreateCharacter,
   MultiPlayerSelectCharacter,
@@ -66,6 +66,9 @@ public:
 
   void stopMusic();
 
+  // True once, after the Workshop menu asked for mods to be reloaded.
+  bool takeModReloadRequest();
+
   PlayerPtr currentlySelectedPlayer() const;
 
   String multiPlayerAddress() const;
@@ -89,7 +92,7 @@ private:
   void initCharCreationMenu();
   void initMultiPlayerMenu();
   void initOptionsMenu(UniverseClientPtr client);
-  void initModsMenu();
+  void initWorkshopMenu();
 
   void renderCursor();
 
@@ -122,6 +125,8 @@ private:
 
   PanePtr m_mainMenu;
   PanePtr m_backgroundMenu;
+  WorkshopMenuPtr m_workshopMenu;
+  bool m_modReloadRequested = false;
   List<pair<ButtonWidgetPtr, Vec2I>> m_rightAnchoredButtons;
 
   PlayerPtr m_mainAppPlayer;
