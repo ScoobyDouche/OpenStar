@@ -151,4 +151,122 @@ void WorkshopApplyState::reset() {
   m_downloading.clear();
 }
 
+static char const* const WorkshopBBCodeTags[] = {
+  "h1", "h2", "h3", "b", "i", "u", "strike", "spoiler", "noparse", "code", "quote", "url",
+  "img", "previewyoutube", "list", "olist", "*", "hr", "table", "tr", "td", "th"
+};
+
+struct WorkshopBBCodeTag {
+  bool closing;
+  std::string name;
+  // Index just past the closing ']'.
+  size_t end;
+};
+
+// Reads a known tag such as [b], [/h1] or [url=...] starting at the '[' at pos.
+static Maybe<WorkshopBBCodeTag> readWorkshopBBCodeTag(std::string const& text, size_t pos) {
+  WorkshopBBCodeTag tag;
+  size_t i = pos + 1;
+  tag.closing = i < text.size() && text[i] == '/';
+  if (tag.closing)
+    ++i;
+
+  while (i < text.size() && (std::isalnum((unsigned char)text[i]) || text[i] == '*'))
+    tag.name += (char)std::tolower((unsigned char)text[i++]);
+  if (tag.name.empty() || i >= text.size())
+    return {};
+
+  if (text[i] == '=' && !tag.closing) {
+    i = text.find_first_of("]\n", i);
+    if (i == std::string::npos || text[i] != ']')
+      return {};
+  } else if (text[i] != ']') {
+    return {};
+  }
+  tag.end = i + 1;
+
+  for (auto known : WorkshopBBCodeTags) {
+    if (tag.name == known)
+      return tag;
+  }
+  return {};
+}
+
+String workshopDescriptionText(String const& bbcode) {
+  std::string text;
+  for (char c : bbcode.utf8()) {
+    if (c != '\r')
+      text += c;
+  }
+  std::string lowered = text;
+  for (auto& c : lowered)
+    c = (char)std::tolower((unsigned char)c);
+
+  std::string out;
+  auto startLine = [&]() {
+    if (!out.empty() && out.back() != '\n')
+      out += '\n';
+  };
+
+  size_t pos = 0;
+  while (pos < text.size()) {
+    auto tag = text[pos] == '[' ? readWorkshopBBCodeTag(text, pos) : Maybe<WorkshopBBCodeTag>();
+    if (!tag) {
+      out += text[pos++];
+      continue;
+    }
+    pos = tag->end;
+
+    if (tag->name == "img" || tag->name == "previewyoutube") {
+      // The contents are a URL, so drop everything up to the matching close.
+      if (!tag->closing) {
+        size_t close = lowered.find("[/" + tag->name + "]", pos);
+        if (close != std::string::npos)
+          pos = close + tag->name.size() + 3;
+      }
+    } else if (tag->name == "h1" || tag->name == "h2" || tag->name == "h3") {
+      out += tag->closing ? "^reset;" : "^orange;";
+    } else if (tag->name == "b") {
+      out += tag->closing ? "^reset;" : "^yellow;";
+    } else if (tag->name == "*") {
+      startLine();
+      out += "- ";
+      while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t'))
+        ++pos;
+    } else if (tag->name == "list" || tag->name == "olist" || tag->name == "hr") {
+      startLine();
+      // The tag already ended the line, so a newline right after it would
+      // leave a blank one.
+      if (!out.empty() && pos < text.size() && text[pos] == '\n')
+        ++pos;
+    }
+  }
+
+  // Trim each line's trailing spaces, keep at most one blank line in a row, and
+  // trim the whole text.
+  std::string tidy;
+  size_t newlines = 0;
+  size_t lineStart = 0;
+  while (lineStart <= out.size()) {
+    size_t lineEnd = out.find('\n', lineStart);
+    if (lineEnd == std::string::npos)
+      lineEnd = out.size();
+    std::string line = out.substr(lineStart, lineEnd - lineStart);
+    line.erase(line.find_last_not_of(" \t") + 1);
+
+    if (line.empty()) {
+      ++newlines;
+    } else {
+      if (!tidy.empty())
+        tidy.append(std::min<size_t>(newlines, 1) + 1, '\n');
+      else
+        line.erase(0, line.find_first_not_of(" \t"));
+      tidy += line;
+      newlines = 0;
+    }
+    lineStart = lineEnd + 1;
+  }
+  return tidy;
+}
+
 }

@@ -498,10 +498,10 @@ void WorkshopMenu::updateDetails() {
     m_subscribersLabel->setText(item->local ? "VERSION" : "SUBSCRIBERS");
     if (item->local) {
       m_subscribers->setText(item->version.empty() ? "-" : item->version);
-      m_description->setText(item->description);
+      m_description->setText(workshopDescriptionText(item->description));
     } else {
       m_subscribers->setText(toString(item->subscriberCount));
-      m_description->setText(item->description);
+      m_description->setText(workshopDescriptionText(item->description));
     }
   }
 

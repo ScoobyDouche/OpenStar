@@ -8,6 +8,12 @@ namespace Star {
 // True only for https URLs on Steam's own Workshop image hosts.
 bool isAllowedWorkshopPreviewUrl(String const& url);
 
+// Turns a Steam Workshop description written in BBCode into text for a
+// Starbound label: headings and bold become color codes, list items become
+// bullets, images and videos are dropped, and other known tags are removed
+// with their text kept.  Brackets that are not BBCode tags are left alone.
+String workshopDescriptionText(String const& bbcode);
+
 // Walks Workshop dependencies breadth-first without doing any I/O.  The caller
 // fetches the details for each nextBatch() and passes them to supplyBatch().
 class WorkshopDependencyResolver {
