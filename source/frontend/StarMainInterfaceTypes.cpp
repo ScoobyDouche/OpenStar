@@ -134,6 +134,10 @@ MainInterfaceConfigPtr MainInterfaceConfig::loadFromAssets() {
   config->planetNameTextStyle = assets->json("/interface.config:planetTextStyle");
   config->planetNameOffset = jsonToVec2I(assets->json("/interface.config:planetTextOffset"));
 
+  config->adminIndicatorText = assets->json("/interface.config:adminIndicator.text").toString();
+  config->adminIndicatorTextStyle = assets->json("/interface.config:adminIndicator.textStyle");
+  config->adminIndicatorOffset = jsonToVec2F(assets->json("/interface.config:adminIndicator.offset"));
+
   config->renderVirtualCursor = assets->json("/interface.config:renderVirtualCursor").toBool();
   config->cursorItemSlot = assets->json("/interface.config:cursorItemSlot");
 

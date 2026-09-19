@@ -13,6 +13,15 @@
     "movementThreshold" : 0.5,
     "offset" : [0, 13]
   },
+  // Shown above your own character while admin mode is on.
+  "adminIndicator" : {
+    "text" : "ADMIN",
+    "offset" : [0, 23],
+    "textStyle" : {
+      "color" : [255, 80, 64, 217],
+      "backDirectives" : "border=1;fff;fff4?border=1;fff;fff4?multiply=222"
+    }
+  },
   "specialDamageBar" : {
     "nameStyle" : {
       "fontSize" : 18

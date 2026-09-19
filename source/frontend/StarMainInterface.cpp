@@ -868,6 +868,7 @@ void MainInterface::render() {
     return;
 
   m_guiContext->clearTextStyle();
+  renderAdminIndicator();
   renderBreath();
   renderMessages();
   renderMonsterHealthBar();
@@ -1082,6 +1083,21 @@ unsigned MainInterface::windowWidth() const {
 
 Vec2F MainInterface::mainBarPosition() const {
   return Vec2F(windowWidth(), windowHeight()) - Vec2F(m_config->mainBarSize) * interfaceScale();
+}
+
+void MainInterface::renderAdminIndicator() {
+  auto player = m_client->mainPlayer();
+  if (!player || !player->inWorld() || !player->isAdmin() || player->isDead() || player->isTeleporting())
+    return;
+
+  // Anchored like a nametag so it follows the player, but higher so the two
+  // don't overlap when nametags are shown.
+  auto const& camera = m_worldPainter->camera();
+  Vec2F position = camera.worldToScreen(player->nametagOrigin()) + m_config->adminIndicatorOffset * camera.pixelRatio();
+
+  m_guiContext->setTextStyle(m_config->adminIndicatorTextStyle);
+  m_guiContext->renderText(m_config->adminIndicatorText, {position, HorizontalAnchor::HMidAnchor, VerticalAnchor::BottomAnchor});
+  m_guiContext->clearTextStyle();
 }
 
 void MainInterface::renderBreath() {

@@ -141,6 +141,10 @@ struct MainInterfaceConfig {
   TextStyle planetNameTextStyle;
   Vec2I planetNameOffset;
 
+  String adminIndicatorText;
+  TextStyle adminIndicatorTextStyle;
+  Vec2F adminIndicatorOffset;
+
   bool renderVirtualCursor;
   Json cursorItemSlot;
 

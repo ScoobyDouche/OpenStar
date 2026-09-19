@@ -141,6 +141,7 @@ private:
   unsigned windowWidth() const;
   Vec2F mainBarPosition() const;
 
+  void renderAdminIndicator();
   void renderBreath();
   void renderMessages();
   void renderMonsterHealthBar();
